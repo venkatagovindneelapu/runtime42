@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Plus, Paperclip, Palette, MessageSquare, AudioLines, ArrowUp, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
+import { Plus, AudioLines, ArrowUp, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DashboardShell } from '@/components/DashboardShell';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { AppSidebar } from '@/components/AppSidebar';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getProjects,
@@ -162,12 +161,8 @@ const Dashboard = () => {
   };
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        <SidebarInset className="flex-1">
-          {/* Hero Section */}
-          <section className="relative min-h-[70vh] overflow-hidden flex flex-col">
+    <DashboardShell>
+          <section className="relative min-h-[70vh] overflow-hidden flex flex-col shrink-0">
             {/* Gradient background */}
         <div 
           className="absolute top-0 left-0 w-[70%] h-full pointer-events-none"
@@ -201,63 +196,49 @@ const Dashboard = () => {
           </div>
 
           {/* Chat Input Box */}
-          <div className="relative max-w-3xl w-full mx-auto z-20">
-            <div className="absolute -inset-1 rounded-[22px] bg-gradient-to-b from-white/10 to-transparent blur-sm pointer-events-none" />
+          <div className="relative z-20 mx-auto w-full max-w-2xl">
+            <div className="pointer-events-none absolute -inset-1 rounded-[2.25rem] bg-gradient-to-b from-white/10 to-transparent blur-sm" />
             
-            <div className="relative bg-card/90 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl shadow-black/50 border border-border">
-              <div className="px-5 py-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Describe what you want to build..."
-                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none w-full caret-primary disabled:opacity-60"
-                      style={{ caretColor: 'hsl(25, 95%, 55%)' }}
-                      disabled={createMutation.isPending}
-                    />
-                  </div>
+            <div className="relative min-h-28 overflow-hidden rounded-[2rem] border border-border bg-card/90 shadow-2xl shadow-black/50 backdrop-blur-xl">
+              <textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe what you want to build..."
+                className="h-16 w-full resize-none bg-transparent px-7 pt-6 text-base text-foreground outline-none placeholder:text-muted-foreground/70 disabled:opacity-60"
+                style={{ caretColor: 'hsl(25, 95%, 55%)' }}
+                disabled={createMutation.isPending}
+              />
+
+              <div className="flex items-center justify-between px-6 pb-4">
+                <button
+                  type="button"
+                  className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  aria-label="Add attachment"
+                >
+                  <Plus className="size-5" />
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                    aria-label="Voice input"
+                  >
+                    <AudioLines className="size-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={handleSubmit}
                     disabled={!inputValue.trim() || createMutation.isPending}
-                    className="w-8 h-8 rounded-lg bg-muted hover:bg-primary hover:text-primary-foreground flex items-center justify-center text-foreground transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                    className="flex size-10 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-primary hover:text-primary-foreground disabled:pointer-events-none disabled:opacity-50"
                     aria-label="Create project"
                   >
                     {createMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="size-4 animate-spin" />
                     ) : (
-                      <ArrowUp className="w-4 h-4" />
+                      <ArrowUp className="size-4" />
                     )}
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
-                <div className="flex items-center gap-2">
-                  <button type="button" className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                    <Plus className="w-4 h-4" />
-                  </button>
-                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
-                    <Paperclip className="w-4 h-4" />
-                    <span>Attach</span>
-                  </button>
-                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
-                    <Palette className="w-4 h-4" />
-                    <span>Theme</span>
-                    <span className="text-[10px] opacity-50">▼</span>
-                  </button>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Chat</span>
-                  </button>
-                  <button type="button" className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                    <AudioLines className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -408,9 +389,7 @@ const Dashboard = () => {
           )}
         </div>
       </section>
-        </SidebarInset>
-      </div>
-    </SidebarProvider>
+    </DashboardShell>
   );
 };
 

@@ -2,13 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Hide scrollbar utility */
+/* Hide scrollbars app-wide; scrolling still works */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 @tailwind components;
 @tailwind utilities;
@@ -132,6 +134,22 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Oxygen', sans-serif;
+  }
+
+  html,
+  body,
+  * {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
   }
 }
 

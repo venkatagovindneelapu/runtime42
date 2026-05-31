@@ -1,6 +1,5 @@
 import { ExternalLink, Star, Download } from 'lucide-react';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/AppSidebar';
+import { DashboardShell } from '@/components/DashboardShell';
 
 const templates = [
   {
@@ -90,11 +89,8 @@ const categories = ['All', 'Dashboard', 'E-commerce', 'Portfolio', 'Blog', 'Mark
 
 const Templates = () => {
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        <SidebarInset className="flex-1">
-          <div className="p-8">
+    <DashboardShell>
+          <div className="flex-1 overflow-y-auto p-8">
             {/* Header */}
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-foreground mb-2">Templates</h1>
@@ -171,9 +167,7 @@ const Templates = () => {
               ))}
             </div>
           </div>
-        </SidebarInset>
-      </div>
-    </SidebarProvider>
+    </DashboardShell>
   );
 };
 

@@ -1,4 +1,23 @@
-import { Home, Search, LayoutGrid, Star, Users, Compass, FileBox, GraduationCap, Settings, Sun, Moon, HelpCircle, FileText, Users2, LogOut, ChevronRight, Check } from 'lucide-react';
+import {
+  Home,
+  Search,
+  LayoutGrid,
+  Star,
+  Users,
+  Compass,
+  FileBox,
+  GraduationCap,
+  Settings,
+  Sun,
+  Moon,
+  HelpCircle,
+  FileText,
+  Users2,
+  LogOut,
+  ChevronRight,
+  Check,
+  PanelLeft,
+} from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import logo from '@/assets/runtime42-logo.png';
@@ -13,7 +32,6 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
-  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import {
@@ -28,6 +46,51 @@ import {
   DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
+
+/** 36px rail: logo, toggle, VG, and nav icons share one centered grid */
+const RAIL_ROW = 'flex h-8 w-full items-center justify-center';
+const RAIL_MARK = 'size-8 shrink-0 rounded-full';
+const RAIL_ICON = 'size-5 shrink-0 stroke-[2.5] text-foreground';
+const LOGO_WRAP = cn(RAIL_MARK, 'overflow-hidden shadow-md');
+const LOGO_IMG = 'h-full w-full scale-[1.45] object-cover';
+const AVATAR_MARK = cn(
+  RAIL_MARK,
+  'flex items-center justify-center bg-gradient-to-br from-green-400 to-emerald-600 text-[11px] font-bold leading-none text-white shadow-md',
+);
+
+const sidebarShellClass = [
+  'group-data-[collapsible=icon]:!left-0 group-data-[collapsible=icon]:!top-[var(--sidebar-rail-gutter,0.5rem)] group-data-[collapsible=icon]:!bottom-[var(--sidebar-rail-gutter,0.5rem)] group-data-[collapsible=icon]:!right-auto group-data-[collapsible=icon]:!h-[calc(100svh-(var(--sidebar-rail-gutter,0.5rem)*2))]',
+  'group-data-[collapsible=icon]:box-border group-data-[collapsible=icon]:!max-w-[calc(var(--sidebar-width-icon)+var(--sidebar-rail-gutter,0px))] group-data-[collapsible=icon]:!min-w-[calc(var(--sidebar-width-icon)+var(--sidebar-rail-gutter,0px))] group-data-[collapsible=icon]:!p-0 group-data-[collapsible=icon]:!w-[calc(var(--sidebar-width-icon)+var(--sidebar-rail-gutter,0px))]',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:box-border group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:flex group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:w-[calc(var(--sidebar-width-icon)+var(--sidebar-rail-gutter,0px))] group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:max-w-[calc(var(--sidebar-width-icon)+var(--sidebar-rail-gutter,0px))] group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:flex-col group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:items-stretch group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:overflow-visible group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:!rounded-none group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:!px-0',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=header]]:!mx-0 group-data-[collapsible=icon]:[&_[data-sidebar=header]]:!p-0 group-data-[collapsible=icon]:[&_[data-sidebar=header]]:w-full group-data-[collapsible=icon]:[&_[data-sidebar=header]]:items-center',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=footer]]:!mx-0 group-data-[collapsible=icon]:[&_[data-sidebar=footer]]:!p-0 group-data-[collapsible=icon]:[&_[data-sidebar=footer]]:mt-auto group-data-[collapsible=icon]:[&_[data-sidebar=footer]]:w-full group-data-[collapsible=icon]:[&_[data-sidebar=footer]]:items-center',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=content]]:!mx-0 group-data-[collapsible=icon]:[&_[data-sidebar=content]]:!ml-0 group-data-[collapsible=icon]:[&_[data-sidebar=content]]:!mr-0 group-data-[collapsible=icon]:[&_[data-sidebar=content]]:!px-0 group-data-[collapsible=icon]:[&_[data-sidebar=content]]:w-full group-data-[collapsible=icon]:[&_[data-sidebar=content]]:max-w-full group-data-[collapsible=icon]:[&_[data-sidebar=content]]:flex group-data-[collapsible=icon]:[&_[data-sidebar=content]]:flex-col group-data-[collapsible=icon]:[&_[data-sidebar=content]]:items-stretch group-data-[collapsible=icon]:[&_[data-sidebar=content]]:!overflow-visible',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=group]]:!m-0 group-data-[collapsible=icon]:[&_[data-sidebar=group]]:!p-0 group-data-[collapsible=icon]:[&_[data-sidebar=group]]:w-full',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=group-content]]:!m-0 group-data-[collapsible=icon]:[&_[data-sidebar=group-content]]:!p-0 group-data-[collapsible=icon]:[&_[data-sidebar=group-content]]:w-full',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=menu]]:m-0 group-data-[collapsible=icon]:[&_[data-sidebar=menu]]:list-none group-data-[collapsible=icon]:[&_[data-sidebar=menu]]:w-full group-data-[collapsible=icon]:[&_[data-sidebar=menu]]:items-center group-data-[collapsible=icon]:[&_[data-sidebar=menu]]:p-0',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=menu-item]]:m-0 group-data-[collapsible=icon]:[&_[data-sidebar=menu-item]]:flex group-data-[collapsible=icon]:[&_[data-sidebar=menu-item]]:w-full group-data-[collapsible=icon]:[&_[data-sidebar=menu-item]]:justify-center group-data-[collapsible=icon]:[&_[data-sidebar=menu-item]]:p-0',
+  'group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!mx-0 group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!h-8 group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!w-full group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!min-h-8 group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!items-center group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!justify-center group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!overflow-visible group-data-[collapsible=icon]:[&_[data-sidebar=menu-button]]:!p-0',
+  '[&_[data-sidebar=menu-button]]:h-auto [&_[data-sidebar=menu-button]]:min-h-0',
+].join(' ');
+
+function RailRow({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn(RAIL_ROW, className)}>{children}</div>;
+}
+
+function RailToggle({ className }: { className?: string }) {
+  const { toggleSidebar } = useSidebar();
+  return (
+    <button
+      type="button"
+      aria-label="Toggle sidebar"
+      onClick={toggleSidebar}
+      className={cn(RAIL_ROW, 'rounded-lg text-foreground hover:bg-muted/60', className)}
+    >
+      <PanelLeft className={RAIL_ICON} strokeWidth={2.5} />
+    </button>
+  );
+}
 
 const mainItems = [
   { title: 'Home', url: '/dashboard', icon: Home },
@@ -46,140 +109,181 @@ const resourceItems = [
   { title: 'Learn', url: '/learn', icon: GraduationCap },
 ];
 
+function navIconClass(collapsed: boolean, active?: boolean) {
+  return cn(
+    RAIL_ICON,
+    collapsed
+      ? active
+        ? 'text-foreground'
+        : 'text-foreground/90'
+      : active
+        ? 'text-foreground'
+        : 'text-foreground/70',
+  );
+}
+
+function navLinkClass(collapsed: boolean, active?: boolean) {
+  return cn(
+    'flex min-w-0 items-center rounded-xl transition-colors',
+    collapsed ? cn(RAIL_ROW, 'justify-center') : 'h-10 w-full gap-3 px-3 py-2',
+    active
+      ? 'bg-muted/80 text-foreground'
+      : collapsed
+        ? 'text-foreground hover:bg-muted/60'
+        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+  );
+}
+
+type NavItem = { title: string; url: string; icon: typeof Home };
+
+function SidebarNavItems({ items, collapsed }: { items: NavItem[]; collapsed: boolean }) {
+  return (
+    <>
+      {items.map((item) => (
+        <SidebarMenuItem key={item.title} className={collapsed ? 'm-0 flex w-full justify-center overflow-visible p-0' : ''}>
+          <SidebarMenuButton asChild size="lg" tooltip={item.title} className={cn(collapsed && 'w-full justify-center overflow-visible p-0')}>
+            <NavLink to={item.url} className={({ isActive }) => navLinkClass(collapsed, isActive)}>
+              {({ isActive }) =>
+                collapsed ? (
+                  <item.icon className={navIconClass(collapsed, isActive)} strokeWidth={2.5} />
+                ) : (
+                  <>
+                    <item.icon className={navIconClass(collapsed, isActive)} strokeWidth={2} />
+                    <span className="truncate text-[15px] font-medium leading-none">{item.title}</span>
+                  </>
+                )
+              }
+            </NavLink>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </>
+  );
+}
+
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, toggleSidebar } = useSidebar();
   const { theme, setTheme } = useTheme();
   const { signOut } = useAuth();
   const collapsed = state === 'collapsed';
-
-  const handleSignOut = () => {
-    signOut();
-  };
+  const sectionPad = collapsed ? '!p-0 w-full items-center' : 'px-3';
+  const collapsedMenuClass = 'm-0 w-full list-none items-center gap-1 p-0';
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border">
-      <SidebarHeader className={`${collapsed ? 'py-4 px-2' : 'p-4'}`}>
-        <div className={`flex flex-col ${collapsed ? 'items-center gap-3' : 'gap-4'}`}>
-          {/* Logo */}
-          <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-            <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
-              <div className={`${collapsed ? 'w-10 h-10' : 'w-9 h-9'} rounded-xl overflow-hidden flex-shrink-0 shadow-md`}>
-                <img src={logo} alt="runtime42" className="w-full h-full object-cover" />
+    <Sidebar
+      collapsible="icon"
+      variant="inset"
+      className={cn(
+        '[&_[data-sidebar=sidebar]]:bg-sidebar [&_[data-sidebar=sidebar]]:rounded-2xl sm:[&_[data-sidebar=sidebar]]:rounded-3xl',
+        sidebarShellClass,
+      )}
+    >
+      <SidebarHeader className={cn(sectionPad, collapsed ? 'pt-[30px] pb-1' : 'pt-3 pb-2')}>
+        <div className={cn('flex w-full flex-col', collapsed ? 'w-full items-stretch gap-1' : 'gap-3')}>
+          {collapsed ? (
+            <RailRow>
+              <button
+                type="button"
+                aria-label="Open sidebar"
+                onClick={toggleSidebar}
+                className={cn(LOGO_WRAP, 'group relative translate-y-3')}
+              >
+                <img src={logo} alt="runtime42" className={cn(LOGO_IMG, 'transition-opacity group-hover:opacity-0')} />
+                <PanelLeft
+                  className="absolute inset-0 m-auto size-5 opacity-0 transition-opacity group-hover:opacity-100"
+                  strokeWidth={2.5}
+                />
+              </button>
+            </RailRow>
+          ) : (
+            <div className="flex w-full items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="shrink-0">
+                  <div className={LOGO_WRAP}>
+                    <img src={logo} alt="runtime42" className={LOGO_IMG} />
+                  </div>
+                </div>
+                <span className="truncate text-xl font-semibold tracking-tight text-foreground">runtime42</span>
               </div>
-              {!collapsed && <span className="font-semibold text-foreground text-lg">runtime42</span>}
-            </div>
-            {!collapsed && <SidebarTrigger className="text-muted-foreground hover:text-foreground" />}
-          </div>
-          
-          {/* Collapse trigger when collapsed */}
-          {collapsed && (
-            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-          )}
-          
-          {/* User selector - only when expanded */}
-          {!collapsed && (
-            <div className="flex items-center gap-3 p-2.5 rounded-xl bg-primary/10 border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-                V
-              </div>
-              <span className="text-sm font-medium text-foreground flex-1 truncate">Venkata's Space</span>
+              <RailToggle className="h-9 w-9 shrink-0 rounded-lg" />
             </div>
           )}
         </div>
       </SidebarHeader>
 
-      <SidebarContent className={`${collapsed ? 'px-2' : 'px-3'}`}>
-        {/* Main Navigation */}
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu className={collapsed ? 'items-center gap-1' : 'gap-1'}>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.title} className={collapsed ? 'flex justify-center' : ''}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
-                      to={item.url} 
-                      className={({ isActive }) => 
-                        `flex items-center gap-3 ${collapsed ? 'justify-center w-10 h-10' : 'px-3 py-2.5'} rounded-xl transition-colors ${
-                          isActive ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                        }`
-                      }
-                    >
-                      <item.icon className={`${collapsed ? 'w-5 h-5' : 'w-5 h-5'} flex-shrink-0`} />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent
+        className={cn(
+          collapsed ? '!m-0 !mt-8 !w-full !max-w-full !shrink-0 self-stretch !p-0 !gap-1' : cn(sectionPad, 'mt-8 gap-1'),
+        )}
+      >
+        {collapsed ? (
+          <SidebarMenu className={collapsedMenuClass}>
+            <SidebarNavItems items={mainItems} collapsed />
+            <SidebarNavItems items={projectItems} collapsed />
+            <SidebarNavItems items={resourceItems} collapsed />
+          </SidebarMenu>
+        ) : (
+          <>
+            <SidebarGroup className="p-0">
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-1">
+                  <SidebarNavItems items={mainItems} collapsed={false} />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        {/* Projects */}
-        <SidebarGroup className="mt-2">
-          {!collapsed && <SidebarGroupLabel className="text-xs text-muted-foreground px-3 mb-1">Projects</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu className={collapsed ? 'items-center gap-1' : 'gap-1'}>
-              {projectItems.map((item) => (
-                <SidebarMenuItem key={item.title} className={collapsed ? 'flex justify-center' : ''}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
-                      to={item.url} 
-                      className={`flex items-center gap-3 ${collapsed ? 'justify-center w-10 h-10' : 'px-3 py-2.5'} rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+            <SidebarGroup className="mt-0 p-0">
+              <SidebarGroupLabel className="mb-1 h-7 px-3 text-[13px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                Projects
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-1">
+                  <SidebarNavItems items={projectItems} collapsed={false} />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        {/* Resources */}
-        <SidebarGroup className="mt-2">
-          {!collapsed && <SidebarGroupLabel className="text-xs text-muted-foreground px-3 mb-1">Resources</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu className={collapsed ? 'items-center gap-1' : 'gap-1'}>
-              {resourceItems.map((item) => (
-                <SidebarMenuItem key={item.title} className={collapsed ? 'flex justify-center' : ''}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
-                      to={item.url} 
-                      className={`flex items-center gap-3 ${collapsed ? 'justify-center w-10 h-10' : 'px-3 py-2.5'} rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+            <SidebarGroup className="mt-0 p-0">
+              <SidebarGroupLabel className="mb-1 h-7 px-3 text-[13px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                Resources
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-1">
+                  <SidebarNavItems items={resourceItems} collapsed={false} />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
 
-      <SidebarFooter className={`${collapsed ? 'p-2' : 'p-3'}`}>
-        {/* User Avatar with Dropdown */}
+      <SidebarFooter className={cn(sectionPad, collapsed ? 'pb-4 pt-2' : 'pb-3 pt-1')}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className={`flex items-center gap-3 ${collapsed ? 'justify-center w-10 h-10 mx-auto' : 'p-2 w-full'} rounded-xl hover:bg-muted/50 transition-colors`}>
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-lg">
-                VG
-              </div>
+            <button
+              type="button"
+              className={cn(
+                'rounded-xl transition-colors hover:bg-muted/50',
+                collapsed ? RAIL_ROW : 'flex h-11 w-full min-w-0 items-center gap-3 px-1 py-1',
+              )}
+            >
+              <span className={cn('shrink-0', collapsed && 'flex w-full justify-center')}>
+                <span className={AVATAR_MARK}>VG</span>
+              </span>
               {!collapsed && (
-                <div className="flex-1 text-left">
-                  <p className="text-sm font-medium text-foreground">Venkata Govind</p>
-                  <p className="text-xs text-muted-foreground truncate">venkatagovind@gmail.com</p>
-                </div>
+                <span className="min-w-0 flex-1 text-left pl-0.5">
+                  <span className="block truncate text-[15px] font-medium leading-tight text-foreground">
+                    Venkata Govind
+                  </span>
+                  <span className="block truncate text-[13px] text-muted-foreground">venkatagovind@gmail.com</span>
+                </span>
               )}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align={collapsed ? "center" : "start"} side="top" className="w-64 p-1">
-            {/* User Info Header */}
-            <div className="px-3 py-3 mb-1">
+          <DropdownMenuContent align={collapsed ? 'center' : 'start'} side="top" className="w-64 p-1">
+            <div className="mb-1 px-3 py-3">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold shadow-md">
+                <div className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600 text-[15px] font-bold text-white shadow-md">
                   VG
                 </div>
                 <div>
@@ -188,88 +292,83 @@ export function AppSidebar() {
                 </div>
               </div>
             </div>
-            
+
             <DropdownMenuSeparator />
-            
-            <DropdownMenuItem className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1">
-              <Settings className="w-4 h-4" />
+
+            <DropdownMenuItem className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+              <Settings className="size-4" />
               <span>Settings</span>
             </DropdownMenuItem>
-            
-            {/* Appearance Submenu with Theme Toggle */}
+
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1 data-[state=open]:bg-primary data-[state=open]:text-primary-foreground">
-                <Moon className="w-4 h-4" />
+              <DropdownMenuSubTrigger className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5 data-[state=open]:bg-primary data-[state=open]:text-primary-foreground">
+                <Moon className="size-4" />
                 <span>Appearance</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuPortal>
                 <DropdownMenuSubContent className="w-48 p-2">
-                  {/* Theme Preview Images */}
-                  <div className="flex gap-2 mb-3 px-1">
-                    <div 
+                  <div className="mb-3 flex gap-2 px-1">
+                    <div
                       onClick={() => setTheme('light')}
-                      className={`flex-1 h-12 rounded-lg cursor-pointer border-2 transition-all overflow-hidden ${theme === 'light' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
+                      className={`h-12 flex-1 cursor-pointer overflow-hidden rounded-lg border-2 transition-all ${theme === 'light' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
                       style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #f59e0b 100%)' }}
                     />
-                    <div 
+                    <div
                       onClick={() => setTheme('dark')}
-                      className={`flex-1 h-12 rounded-lg cursor-pointer border-2 transition-all overflow-hidden ${theme === 'dark' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
+                      className={`h-12 flex-1 cursor-pointer overflow-hidden rounded-lg border-2 transition-all ${theme === 'dark' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
                       style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%)' }}
                     />
-                    <div 
+                    <div
                       onClick={() => setTheme('grey')}
-                      className={`flex-1 h-12 rounded-lg cursor-pointer border-2 transition-all overflow-hidden backdrop-blur-xl ${theme === 'grey' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
-                      style={{ background: 'linear-gradient(135deg, rgba(30,30,40,0.9) 0%, rgba(50,50,65,0.8) 50%, rgba(70,70,90,0.9) 100%)' }}
+                      className={`h-12 flex-1 cursor-pointer overflow-hidden rounded-lg border-2 backdrop-blur-xl transition-all ${theme === 'grey' ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
+                      style={{
+                        background:
+                          'linear-gradient(135deg, rgba(30,30,40,0.9) 0%, rgba(50,50,65,0.8) 50%, rgba(70,70,90,0.9) 100%)',
+                      }}
                     />
                   </div>
-                  
-                  <DropdownMenuItem 
-                    onClick={() => setTheme('light')} 
-                    className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg"
-                  >
-                    <Sun className="w-4 h-4" />
+
+                  <DropdownMenuItem onClick={() => setTheme('light')} className="cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+                    <Sun className="size-4" />
                     <span>Light</span>
-                    {theme === 'light' && <Check className="w-4 h-4 ml-auto text-primary" />}
+                    {theme === 'light' && <Check className="ml-auto size-4 text-primary" />}
                   </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => setTheme('dark')} 
-                    className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg"
-                  >
-                    <Moon className="w-4 h-4" />
+                  <DropdownMenuItem onClick={() => setTheme('dark')} className="cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+                    <Moon className="size-4" />
                     <span>Dark</span>
-                    {theme === 'dark' && <Check className="w-4 h-4 ml-auto text-primary" />}
+                    {theme === 'dark' && <Check className="ml-auto size-4 text-primary" />}
                   </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => setTheme('grey')} 
-                    className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg"
-                  >
-                    <div className="w-4 h-4 rounded-full bg-gradient-to-br from-slate-400 to-slate-600" />
+                  <DropdownMenuItem onClick={() => setTheme('grey')} className="cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+                    <div className="size-4 rounded-full bg-gradient-to-br from-slate-400 to-slate-600" />
                     <span>Grey</span>
-                    {theme === 'grey' && <Check className="w-4 h-4 ml-auto text-primary" />}
+                    {theme === 'grey' && <Check className="ml-auto size-4 text-primary" />}
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuPortal>
             </DropdownMenuSub>
-            
-            <DropdownMenuItem className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1">
-              <HelpCircle className="w-4 h-4" />
+
+            <DropdownMenuItem className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+              <HelpCircle className="size-4" />
               <span>Support</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
+              <ChevronRight className="ml-auto size-4 opacity-50" />
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1">
-              <FileText className="w-4 h-4" />
+            <DropdownMenuItem className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+              <FileText className="size-4" />
               <span>Documentation</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
+              <ChevronRight className="ml-auto size-4 opacity-50" />
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1">
-              <Users2 className="w-4 h-4" />
+            <DropdownMenuItem className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5">
+              <Users2 className="size-4" />
               <span>Community</span>
             </DropdownMenuItem>
-            
+
             <DropdownMenuSeparator />
-            
-            <DropdownMenuItem onClick={handleSignOut} className="gap-3 py-2.5 px-3 cursor-pointer rounded-lg mx-1 text-orange-500 focus:text-orange-500 focus:bg-orange-500/10">
-              <LogOut className="w-4 h-4" />
+
+            <DropdownMenuItem
+              onClick={() => signOut()}
+              className="mx-1 cursor-pointer gap-3 rounded-lg px-3 py-2.5 text-orange-500 focus:bg-orange-500/10 focus:text-orange-500"
+            >
+              <LogOut className="size-4" />
               <span>Sign out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
