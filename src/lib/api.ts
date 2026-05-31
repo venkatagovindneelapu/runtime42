@@ -1,6 +1,16 @@
-import { getToken, signOut } from './auth'
+import { authClient } from './neonAuth'
+import { signOut } from './auth'
 
 const API_URL = import.meta.env.VITE_API_URL
+
+async function getAuthToken(): Promise<string | null> {
+  const session = await authClient.getSession()
+  return (
+    session?.data?.session?.token ??
+    session?.data?.session?.access_token ??
+    null
+  )
+}
 
 export interface User {
   id: string
@@ -12,7 +22,7 @@ export interface User {
   updatedAt?: string
 }
 
-export interface Page {
+export interface Project {
   id: string
   userId: string
   title: string
@@ -24,8 +34,8 @@ export interface Page {
   updatedAt: string
 }
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = await getToken()
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getAuthToken()
 
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -52,13 +62,38 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 export const api = {
   me: () => apiFetch<User>('/api/auth/me'),
-  getPages: () => apiFetch<Page[]>('/api/pages'),
-  getPage: (id: string) => apiFetch<Page>(`/api/pages/${id}`),
-  createPage: (data: { prompt: string; title?: string }) =>
-    apiFetch<Page>('/api/pages', {
+  getProjects: () => apiFetch<Project[]>('/api/projects'),
+  getProject: (id: string) => apiFetch<Project>(`/api/projects/${id}`),
+  createProject: (data: { prompt: string; title?: string }) =>
+    apiFetch<Project>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  deletePage: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/pages/${id}`, { method: 'DELETE' }),
+  deleteProject: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
+  updateProjectTitle: (id: string, title: string) =>
+    apiFetch<Project>(`/api/projects/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+}
+
+export function getProjects() {
+  return api.getProjects()
+}
+
+export function createProject(prompt: string, title?: string) {
+  return api.createProject({ prompt, title })
+}
+
+export function getProject(id: string) {
+  return api.getProject(id)
+}
+
+export function deleteProject(id: string) {
+  return api.deleteProject(id)
+}
+
+export function updateProjectTitle(id: string, title: string) {
+  return api.updateProjectTitle(id, title)
 }

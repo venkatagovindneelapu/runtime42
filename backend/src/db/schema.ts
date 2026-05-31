@@ -10,7 +10,7 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
 
-export const pages = pgTable('pages', {
+export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id')
     .references(() => users.id, { onDelete: 'cascade' })
@@ -25,5 +25,5 @@ export const pages = pgTable('pages', {
 })
 
 export type User = typeof users.$inferSelect
-export type Page = typeof pages.$inferSelect
-export type NewPage = typeof pages.$inferInsert
+export type Project = typeof projects.$inferSelect
+export type NewProject = typeof projects.$inferInsert

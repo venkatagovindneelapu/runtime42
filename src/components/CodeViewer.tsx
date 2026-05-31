@@ -1047,12 +1047,26 @@ const FileTreeItem = ({ node, depth, selectedFile, onSelectFile, path }: FileTre
   );
 };
 
+const RAW_HTML_FILE = 'index.html';
+
+const rawHtmlFileTree: FileNode[] = [
+  {
+    name: RAW_HTML_FILE,
+    type: 'file',
+    content: '',
+  },
+];
+
 interface CodeViewerProps {
   className?: string;
   onCodeChange?: (filePath: string, newCode: string) => void;
+  /** When set, shows generated landing page HTML instead of demo file tree */
+  rawHtml?: string | null;
 }
 
-const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
+const CodeViewer = ({ className, onCodeChange, rawHtml }: CodeViewerProps) => {
+  const useRawHtml = rawHtml != null;
+
   // Get initial Home.tsx content from nested structure
   const getInitialContent = () => {
     const src = initialDemoProjectFiles[0];
@@ -1061,12 +1075,28 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
     return home?.content || '';
   };
   
-  const [selectedFile, setSelectedFile] = useState<string | null>('src/pages/Home.tsx');
-  const [fileContent, setFileContent] = useState<string>(getInitialContent());
+  const [selectedFile, setSelectedFile] = useState<string | null>(
+    useRawHtml ? RAW_HTML_FILE : 'src/pages/Home.tsx'
+  );
+  const [fileContent, setFileContent] = useState<string>(
+    useRawHtml ? rawHtml : getInitialContent()
+  );
   const [isEditing, setIsEditing] = useState(false);
-  const [editedContent, setEditedContent] = useState<string>('');
+  const [editedContent, setEditedContent] = useState<string>(
+    useRawHtml ? rawHtml : ''
+  );
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark' | 'grey'>('dark');
+
+  useEffect(() => {
+    if (useRawHtml) {
+      setSelectedFile(RAW_HTML_FILE);
+      setFileContent(rawHtml);
+      setEditedContent(rawHtml);
+      setHasUnsavedChanges(false);
+      setIsEditing(false);
+    }
+  }, [rawHtml, useRawHtml]);
 
   // Detect current theme
   useEffect(() => {
@@ -1144,7 +1174,7 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
         </div>
         <ScrollArea className="flex-1">
           <div className="p-2">
-            {initialDemoProjectFiles.map((node, i) => (
+            {(useRawHtml ? rawHtmlFileTree : initialDemoProjectFiles).map((node, i) => (
               <FileTreeItem
                 key={i}
                 node={node}
@@ -1169,7 +1199,10 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
               {hasUnsavedChanges && <span className="text-amber-400 ml-1">●</span>}
             </div>
             <div className="flex items-center gap-2">
+              {!useRawHtml && (
+              <>
               <button
+                type="button"
                 onClick={() => setIsEditing(!isEditing)}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${
                   isEditing ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -1179,12 +1212,15 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
               </button>
               {hasUnsavedChanges && (
                 <button
+                  type="button"
                   onClick={handleSave}
                   className="flex items-center gap-1 px-3 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
                 >
                   <Save className="w-3 h-3" />
                   Save
                 </button>
+              )}
+              </>
               )}
             </div>
           </div>
@@ -1199,7 +1235,7 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
                 <Highlight
                   theme={getCodeTheme()}
                   code={editedContent || fileContent}
-                  language="tsx"
+                  language={useRawHtml ? 'html' : 'tsx'}
                 >
                   {({ style, tokens, getLineProps, getTokenProps }) => (
                     <pre
@@ -1238,7 +1274,7 @@ const CodeViewer = ({ className, onCodeChange }: CodeViewerProps) => {
                 <Highlight
                   theme={getCodeTheme()}
                   code={fileContent}
-                  language="tsx"
+                  language={useRawHtml ? 'html' : 'tsx'}
                 >
                   {({ style, tokens, getLineProps, getTokenProps }) => (
                     <pre

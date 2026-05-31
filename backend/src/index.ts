@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import 'dotenv/config'
 import { authRouter } from './routes/auth'
-import { pagesRouter } from './routes/pages'
+import { projectsRouter } from './routes/projects'
 import { requireAuth } from './middleware/requireAuth'
 
 const app = express()
@@ -30,7 +30,7 @@ app.get('/api/health', (_, res) => {
 })
 
 app.use('/api/auth', authRouter)
-app.use('/api/pages', requireAuth, pagesRouter)
+app.use('/api/projects', requireAuth, projectsRouter)
 
 app.use((_, res) => {
   res.status(404).json({ error: 'Not found' })

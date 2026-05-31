@@ -1,57 +1,164 @@
-import { useState } from 'react';
-import { Plus, Paperclip, Palette, MessageSquare, AudioLines, ArrowUp, ExternalLink } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Plus, Paperclip, Palette, MessageSquare, AudioLines, ArrowUp, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { AppSidebar } from '@/components/AppSidebar';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  getProjects,
+  createProject,
+  deleteProject,
+  updateProjectTitle,
+  type Project,
+} from '@/lib/api';
 
-const userProjects = [
-  {
-    id: 1,
-    title: 'E-commerce Dashboard',
-    description: 'A complete admin dashboard with inventory management, order tracking, and analytics.',
-    lastEdited: '2 hours ago',
-    status: 'Published',
-    image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=250&fit=crop',
-  },
-  {
-    id: 2,
-    title: 'AI Chat Application',
-    description: 'Real-time chat app with AI-powered responses and conversation history.',
-    lastEdited: '1 day ago',
-    status: 'Draft',
-    image: 'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=400&h=250&fit=crop',
-  },
-  {
-    id: 3,
-    title: 'Project Management Tool',
-    description: 'Kanban board with team collaboration, file sharing, and deadline tracking.',
-    lastEdited: '3 days ago',
-    status: 'Published',
-    image: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=400&h=250&fit=crop',
-  },
-];
+function truncatePrompt(prompt: string, max = 100) {
+  const t = prompt.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
+function formatCreatedAt(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function statusBadgeClass(status: string) {
+  switch (status) {
+    case 'ready':
+      return 'bg-green-500/90 text-white';
+    case 'failed':
+      return 'bg-destructive/90 text-white';
+    case 'generating':
+    case 'pending':
+    default:
+      return 'bg-muted text-muted-foreground';
+  }
+}
+
+function statusLabel(status: string) {
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'failed':
+      return 'Failed';
+    case 'generating':
+      return 'Generating';
+    case 'pending':
+      return 'Pending';
+    default:
+      return status;
+  }
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [inputValue, setInputValue] = useState('');
-  const userName = 'Venkata Govind Neelapu';
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState('');
+  const titleInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const userName = user?.name || user?.email?.split('@')[0] || 'there';
+
+  const { data: projects = [], isLoading, isError } = useQuery({
+    queryKey: ['projects'],
+    queryFn: getProjects,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: ({ prompt, title }: { prompt: string; title: string }) =>
+      createProject(prompt, title),
+    onSuccess: (project) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setInputValue('');
+      navigate(`/editor/${project.id}`);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to create project');
+    },
+  });
+
+  const updateTitleMutation = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      updateProjectTitle(id, title),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setEditingProjectId(null);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to rename project');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteProject(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to delete project');
+    },
+  });
+
+  useEffect(() => {
+    if (!editingProjectId) return;
+    const input = titleInputRefs.current[editingProjectId];
+    input?.focus();
+    input?.select();
+  }, [editingProjectId]);
 
   const handleSubmit = () => {
-    if (inputValue.trim()) {
-      // Navigate to editor with the prompt
-      navigate('/editor', { state: { initialPrompt: inputValue } });
-    }
+    const prompt = inputValue.trim();
+    if (!prompt || createMutation.isPending) return;
+    createMutation.mutate({
+      prompt,
+      title: prompt.slice(0, 50),
+    });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
   };
 
-  const handleOpenProject = (projectId: number) => {
+  const handleOpenProject = (projectId: string) => {
     navigate(`/editor/${projectId}`);
+  };
+
+  const startRenaming = (project: Project) => {
+    setEditingProjectId(project.id);
+    setDraftTitle(project.title || 'Untitled');
+  };
+
+  const saveTitle = (project: Project) => {
+    const nextTitle = draftTitle.trim();
+    setEditingProjectId(null);
+    if (!nextTitle || nextTitle === project.title || updateTitleMutation.isPending) return;
+    updateTitleMutation.mutate({ id: project.id, title: nextTitle });
+  };
+
+  const handleDeleteProject = (project: Project) => {
+    if (!window.confirm(`Delete "${project.title || 'Untitled'}"?`)) return;
+    deleteMutation.mutate(project.id);
   };
 
   return (
@@ -107,26 +214,37 @@ const Dashboard = () => {
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={handleKeyDown}
                       placeholder="Describe what you want to build..."
-                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none w-full caret-primary"
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none w-full caret-primary disabled:opacity-60"
                       style={{ caretColor: 'hsl(25, 95%, 55%)' }}
+                      disabled={createMutation.isPending}
                     />
                   </div>
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 shadow-lg shadow-green-500/30 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={!inputValue.trim() || createMutation.isPending}
+                    className="w-8 h-8 rounded-lg bg-muted hover:bg-primary hover:text-primary-foreground flex items-center justify-center text-foreground transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                    aria-label="Create project"
+                  >
+                    {createMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </div>
               
               <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
                 <div className="flex items-center gap-2">
-                  <button className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                  <button type="button" className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
                     <Plus className="w-4 h-4" />
                   </button>
-                  <button className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
+                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
                     <Paperclip className="w-4 h-4" />
                     <span>Attach</span>
                   </button>
-                  <button className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
+                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
                     <Palette className="w-4 h-4" />
                     <span>Theme</span>
                     <span className="text-[10px] opacity-50">▼</span>
@@ -134,18 +252,12 @@ const Dashboard = () => {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <button className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
+                  <button type="button" className="h-8 px-3 rounded-lg bg-muted/50 hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
                     <MessageSquare className="w-4 h-4" />
                     <span>Chat</span>
                   </button>
-                  <button className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                  <button type="button" className="w-8 h-8 rounded-lg bg-muted/50 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
                     <AudioLines className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={handleSubmit}
-                    className="w-8 h-8 rounded-lg bg-muted hover:bg-primary hover:text-primary-foreground flex items-center justify-center text-foreground transition-colors"
-                  >
-                    <ArrowUp className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -166,54 +278,134 @@ const Dashboard = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {userProjects.map((project) => (
-              <div 
-                key={project.id}
-                className="group bg-card rounded-xl border border-border overflow-hidden hover:border-primary/50 transition-all hover:shadow-lg hover:shadow-primary/10"
-              >
-                <div className="relative h-48 overflow-hidden">
-                  <img 
-                    src={project.image} 
-                    alt={project.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                  <div className="absolute top-3 left-3">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                      project.status === 'Published' 
-                        ? 'bg-green-500/90 text-white' 
-                        : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {project.status}
-                    </span>
+          {isError && (
+            <p className="text-center text-sm text-destructive mb-6">
+              Failed to load projects. Please refresh the page.
+            </p>
+          )}
+
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="bg-card rounded-xl border border-border overflow-hidden"
+                >
+                  <Skeleton className="h-48 w-full rounded-none" />
+                  <div className="p-5 space-y-3">
+                    <Skeleton className="h-5 w-3/4" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-2/3" />
+                    <div className="flex justify-between pt-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-8 w-16 rounded-lg" />
+                    </div>
                   </div>
-                  <button className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors">
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
                 </div>
-                
-                <div className="p-5">
-                  <h3 className="text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">
-                    {project.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {project.description}
-                  </p>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Edited {project.lastEdited}</span>
-                    <button 
+              ))}
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="text-center py-16 px-4 rounded-xl border border-dashed border-border bg-card/30">
+              <p className="text-muted-foreground text-lg">
+                No projects yet. Describe something above to get started.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {projects.map((project: Project) => (
+                <div 
+                  key={project.id}
+                  className="group relative bg-card rounded-xl border border-border overflow-hidden hover:border-primary/50 transition-all hover:shadow-lg hover:shadow-primary/10"
+                >
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors opacity-0 group-hover:opacity-100"
+                        aria-label="Project actions"
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => startRenaming(project)}>
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleDeleteProject(project)}>
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <div className="relative h-48 overflow-hidden bg-gradient-to-br from-primary/30 via-primary/10 to-muted flex items-center justify-center">
+                    <span className="text-4xl font-bold text-primary/40 select-none">
+                      {(project.title || 'P').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    <div className="absolute top-3 left-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusBadgeClass(project.status)}`}>
+                        {statusLabel(project.status)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors"
                       onClick={() => handleOpenProject(project.id)}
-                      className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      aria-label="Open project"
                     >
-                      Open
+                      <ExternalLink className="w-4 h-4" />
                     </button>
                   </div>
+                  
+                  <div className="p-5">
+                    {editingProjectId === project.id ? (
+                      <input
+                        ref={(node) => {
+                          titleInputRefs.current[project.id] = node;
+                        }}
+                        type="text"
+                        value={draftTitle}
+                        onChange={(e) => setDraftTitle(e.target.value)}
+                        onBlur={() => saveTitle(project)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        disabled={updateTitleMutation.isPending}
+                        className="text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors line-clamp-1 bg-transparent outline-none w-full disabled:opacity-60"
+                      />
+                    ) : (
+                      <h3
+                        className={`text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors line-clamp-1 cursor-text ${
+                          updateTitleMutation.isPending && updateTitleMutation.variables?.id === project.id ? 'opacity-60' : ''
+                        }`}
+                        onClick={() => startRenaming(project)}
+                      >
+                        {project.title || 'Untitled'}
+                      </h3>
+                    )}
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+                      {truncatePrompt(project.prompt)}
+                    </p>
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        {formatCreatedAt(project.createdAt)}
+                      </span>
+                      <button 
+                        type="button"
+                        onClick={() => handleOpenProject(project.id)}
+                        className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
         </SidebarInset>

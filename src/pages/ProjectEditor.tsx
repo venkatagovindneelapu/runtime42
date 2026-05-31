@@ -14,9 +14,10 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useParams, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import logo from '@/assets/runtime42-logo.png';
-import DemoApp from '@/demo-project/DemoApp';
 import CodeViewer from '@/components/CodeViewer';
+import { getProject } from '@/lib/api';
 import FileSearch from '@/components/FileSearch';
 import BuildingScreen from '@/components/BuildingScreen';
 import { toast } from 'sonner';
@@ -36,10 +37,9 @@ const ProjectEditor = () => {
   const location = useLocation();
   const [inputValue, setInputValue] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [projectName] = useState(projectId ? 'Demo Project' : 'New Project');
+  const [projectName, setProjectName] = useState('New Project');
   const [previewRoute, setPreviewRoute] = useState('/');
   const [activeDevice, setActiveDevice] = useState<DeviceType>('desktop');
   const [activeTab, setActiveTab] = useState<TabType>('preview');
@@ -126,12 +126,27 @@ const ProjectEditor = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  const {
+    data: page,
+    isLoading: isPageLoading,
+    isError: isPageError,
+    refetch: refetchPage,
+  } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => getProject(projectId!),
+    enabled: !!projectId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      return data.status === 'generating' || data.status === 'pending';
+    },
+  });
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+    if (page?.title) {
+      setProjectName(page.title);
+    }
+  }, [page?.title]);
 
   useEffect(() => {
     const state = location.state as { initialPrompt?: string } | null;
@@ -208,7 +223,7 @@ const ProjectEditor = () => {
           <img src={logo} alt="runtime42" className="w-7 h-7 rounded-lg" />
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-1.5 cursor-pointer hover:bg-muted/50 px-2 py-1.5 rounded-lg transition-colors outline-none">
-              <span className="font-semibold text-foreground">{projectName}</span>
+              <span className="font-semibold text-foreground truncate max-w-[180px]">{projectName}</span>
               <ChevronDown className="w-4 h-4 text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 bg-popover border border-border z-50 p-2">
@@ -370,7 +385,8 @@ const ProjectEditor = () => {
               
               {/* Refresh button */}
               <button 
-                onClick={handleRefreshPreview}
+                type="button"
+                onClick={() => refetchPage()}
                 className="p-2 hover:bg-muted-foreground/10 rounded-lg transition-colors"
               >
                 <RefreshCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
@@ -491,26 +507,48 @@ const ProjectEditor = () => {
           <div className="flex-1 overflow-hidden bg-background rounded-3xl">
             {activeTab === 'preview' && (
               <div className="h-full flex flex-col">
-                {isLoading || isThinking ? (
-                  <BuildingScreen message={isLoading ? 'Getting ready..' : 'Building your idea..'} />
-                ) : showPreview || projectId ? (
-                  <div className={`h-full flex items-center justify-center ${activeDevice !== 'desktop' ? 'bg-muted/30 p-4' : ''} overflow-auto transition-all duration-500 ease-out scrollbar-hide`}>
-                    <div className={`h-full ${deviceSizes[activeDevice]} transition-all duration-500 ease-out ${activeDevice !== 'desktop' ? 'border border-border rounded-3xl shadow-2xl bg-background overflow-hidden' : ''}`}>
-                      <div ref={previewContainerRef} className="h-full overflow-auto scrollbar-hide">
-                        <DemoApp key={previewKey} currentRoute={previewRoute} onRouteChange={handleRouteChange} />
-                      </div>
-                    </div>
+                {!projectId ? (
+                  <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                    Invalid project
+                  </div>
+                ) : isPageError ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    <p className="text-destructive text-sm">Failed to load this project.</p>
+                    <button
+                      type="button"
+                      onClick={() => refetchPage()}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : isPageLoading || !page || page.status === 'generating' || page.status === 'pending' ? (
+                  <BuildingScreen message="Generating your landing page..." />
+                ) : page.status === 'failed' ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    <p className="text-destructive text-sm">
+                      {page.errorMessage || 'Generation failed.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => refetchPage()}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                    >
+                      Try again
+                    </button>
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="text-center max-w-md">
-                      <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                        <img src={logo} alt="runtime42" className="w-12 h-12" />
+                  <div className={`h-full flex items-center justify-center ${activeDevice !== 'desktop' ? 'bg-muted/30 p-4' : ''} overflow-auto transition-all duration-500 ease-out scrollbar-hide`}>
+                    <div className={`h-full ${deviceSizes[activeDevice]} transition-all duration-500 ease-out ${activeDevice !== 'desktop' ? 'border border-border rounded-3xl shadow-2xl bg-background overflow-hidden' : ''}`}>
+                      <div ref={previewContainerRef} className="h-full w-full overflow-auto scrollbar-hide">
+                        <iframe
+                          key={page.updatedAt}
+                          title="Preview"
+                          srcDoc={page.html ?? ''}
+                          className="w-full h-full border-0 bg-white"
+                          sandbox="allow-scripts allow-same-origin"
+                        />
                       </div>
-                      <h3 className="text-xl font-semibold text-foreground mb-2">runtime42 Cloud</h3>
-                      <p className="text-muted-foreground text-sm">
-                        Describe features, get full apps. Data, hosting, auth, AI included.
-                      </p>
                     </div>
                   </div>
                 )}
@@ -518,7 +556,7 @@ const ProjectEditor = () => {
             )}
 
             {activeTab === 'code' && (
-              <CodeViewer onCodeChange={handleCodeChange} />
+              <CodeViewer className="h-full" rawHtml={page?.html ?? ''} />
             )}
 
             {activeTab === 'analytics' && (
