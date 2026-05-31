@@ -4,14 +4,18 @@ import { projects, chatMessages } from '../db/schema'
 import {
   runInputChunker,
   runPlanner,
+  runDependencyPlanner,
   runCodingAgent,
   runErrorFixer,
   runSummarizer,
+  mergeScaffoldWithProductFiles,
   type ChunkedIntent,
   type CodingPlan,
   type GeneratedFiles,
   type GenerationSummary,
+  type ExtraDependency,
 } from './agents'
+import { applyExtrasToPackageJson } from './scaffold'
 
 export type CheckpointStatus = 'active' | 'done' | 'error'
 
@@ -29,6 +33,8 @@ export interface PipelineCheckpoint {
   detail?: string
   status?: CheckpointStatus
   paths?: string[]
+  /** Partial file contents for live preview patching */
+  files?: GeneratedFiles
 }
 
 export interface PipelineCompletePayload {
@@ -42,6 +48,7 @@ export interface PipelineCompletePayload {
 const AGENT_LABELS: Record<number, string> = {
   1: 'Analyzing requirements',
   2: 'Planning file architecture',
+  6: 'Selecting dependencies',
   3: 'Writing application code',
   4: 'Fixing build errors',
   5: 'Summarizing results',
@@ -97,6 +104,42 @@ async function emitCheckpoint(
   })
 }
 
+function emitFileDeltas(
+  productFiles: GeneratedFiles,
+  onEvent?: PipelineEventHandler
+) {
+  const paths = Object.keys(productFiles)
+  if (paths.length === 0) return
+
+  // Emit one delta per file so the editor can patch live
+  for (const path of paths) {
+    onEvent?.({
+      type: 'files_delta',
+      label: `Wrote ${path}`,
+      paths: [path],
+      files: { [path]: productFiles[path] },
+      status: 'done',
+    })
+  }
+}
+
+function mergeWithExisting(
+  existingFiles: GeneratedFiles | null,
+  productFiles: GeneratedFiles,
+  extras: ExtraDependency[],
+  isFirstGeneration: boolean
+): GeneratedFiles {
+  if (isFirstGeneration || !existingFiles || Object.keys(existingFiles).length === 0) {
+    return mergeScaffoldWithProductFiles(productFiles, extras)
+  }
+
+  const merged: GeneratedFiles = { ...existingFiles, ...productFiles }
+  if (extras.length > 0 && merged['package.json']) {
+    merged['package.json'] = applyExtrasToPackageJson(merged['package.json'], extras)
+  }
+  return merged
+}
+
 export interface RunPipelineOptions {
   projectId: string
   userId: string
@@ -148,6 +191,9 @@ export async function runGenerationPipeline(
     ? (JSON.parse(project.files) as GeneratedFiles)
     : null
 
+  const isFirstGeneration =
+    !existingFiles || Object.keys(existingFiles).length === 0
+
   let intent: ChunkedIntent
   let plan: CodingPlan
   let mergedFiles: GeneratedFiles
@@ -172,19 +218,26 @@ export async function runGenerationPipeline(
       const planFromDb = project.codingPlan ? JSON.parse(project.codingPlan) : plan
       const fixed = await runErrorFixer(errorMessages!, existingFiles!, planFromDb)
       mergedFiles = { ...existingFiles!, ...fixed }
+      emitFileDeltas(fixed, onEvent)
       await emitCheckpoint(projectId, thinkingMessageId, steps, 4, 'done', undefined, onEvent)
     } else {
-      await emitCheckpoint(projectId, thinkingMessageId, steps, 3, 'active', undefined, onEvent)
-      const changedFiles = await runCodingAgent(intent, plan, existingFiles, prompt)
-      mergedFiles = { ...(existingFiles ?? {}), ...changedFiles }
-      await emitCheckpoint(projectId, thinkingMessageId, steps, 3, 'done', undefined, onEvent)
+      await emitCheckpoint(projectId, thinkingMessageId, steps, 6, 'active', undefined, onEvent)
+      const extras = await runDependencyPlanner(prompt, intent, plan)
+      await emitCheckpoint(
+        projectId,
+        thinkingMessageId,
+        steps,
+        6,
+        'done',
+        extras.length > 0 ? `+${extras.length} packages` : 'Base template sufficient',
+        onEvent
+      )
 
-      onEvent?.({
-        type: 'files_delta',
-        label: 'Files ready',
-        paths: Object.keys(changedFiles),
-        status: 'done',
-      })
+      await emitCheckpoint(projectId, thinkingMessageId, steps, 3, 'active', undefined, onEvent)
+      const productFiles = await runCodingAgent(intent, plan, existingFiles, prompt)
+      mergedFiles = mergeWithExisting(existingFiles, productFiles, extras, isFirstGeneration)
+      emitFileDeltas(productFiles, onEvent)
+      await emitCheckpoint(projectId, thinkingMessageId, steps, 3, 'done', undefined, onEvent)
     }
 
     await emitCheckpoint(projectId, thinkingMessageId, steps, 5, 'active', undefined, onEvent)

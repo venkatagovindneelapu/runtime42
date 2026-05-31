@@ -22,6 +22,7 @@ import {
   isPortInUseError,
   nextDevPort,
 } from '@/lib/devServerPorts'
+import { BASE_NEXT_SCAFFOLD } from '@/lib/baseScaffold'
 import {
   attachServerReady,
   bootWebContainerOnce,
@@ -54,6 +55,10 @@ const NPM_INSTALL_ARGS = [
 
 const NPM_SPAWN_OPTS = { env: { CI: '1' } }
 
+type KillableProcess = {
+  kill: () => void
+}
+
 function isInstallFailure(data: string) {
   return /npm error|ERR!|ERESOLVE|ETARGET|notarget/i.test(data)
 }
@@ -70,10 +75,13 @@ export function useWebContainer() {
   const sandboxErrorsRef = useRef<SandboxError[]>([])
   const terminalBufferRef = useRef('')
   const fullPipelineRef = useRef<Promise<Record<string, string>> | null>(null)
+  const initPipelineRef = useRef<Promise<void> | null>(null)
+  const sandboxInitializedRef = useRef(false)
   const installedDepsFingerprintRef = useRef<string | null>(null)
   const installCompletedRef = useRef(false)
   const eaddrInUseRef = useRef(false)
   const activeDevPortRef = useRef<number | null>(null)
+  const activeDevProcessRef = useRef<KillableProcess | null>(null)
 
   const [instance, setInstance] = useState<WebContainer | null>(null)
   const [status, setStatus] = useState<WebContainerStatus>('idle')
@@ -97,6 +105,23 @@ export function useWebContainer() {
     setTerminal((prev) => prev + text)
     logTerminal('sandbox', text)
   }, [])
+
+  const stopActiveDevProcess = useCallback((reason: string) => {
+    const proc = activeDevProcessRef.current
+    if (!proc) return
+    appendLine(reason)
+    try {
+      proc.kill()
+    } catch {
+      // The process may already have exited.
+    } finally {
+      activeDevProcessRef.current = null
+      devServerStartedRef.current = false
+      serverReadyRef.current = false
+      activeDevPortRef.current = null
+      setPreviewUrl(null)
+    }
+  }, [appendLine])
 
   const setParsedErrors = useCallback((errors: SandboxError[]) => {
     sandboxErrorsRef.current = errors
@@ -194,10 +219,13 @@ export function useWebContainer() {
     devServerStartedRef.current = false
     serverReadyRef.current = false
     fullPipelineRef.current = null
+    initPipelineRef.current = null
+    sandboxInitializedRef.current = false
     installedDepsFingerprintRef.current = null
     installCompletedRef.current = false
     eaddrInUseRef.current = false
     activeDevPortRef.current = null
+    stopActiveDevProcess('      stopped previous dev server')
     terminalBufferRef.current = ''
     if (devTimeoutRef.current) {
       clearTimeout(devTimeoutRef.current)
@@ -209,7 +237,7 @@ export function useWebContainer() {
     clearSandboxErrors()
     resetProjectRuntimeState()
     setStatus('idle')
-  }, [clearSandboxErrors])
+  }, [clearSandboxErrors, stopActiveDevProcess])
 
   const pipeProcessOutput = useCallback(
     (source: string, stream: ReadableStream<string>) => {
@@ -272,6 +300,10 @@ export function useWebContainer() {
         return activeDevPortRef.current
       }
 
+      if (activeDevProcessRef.current) {
+        stopActiveDevProcess('      stopped stale dev server before retry')
+      }
+
       devServerStartedRef.current = true
       setStatus('starting')
 
@@ -296,6 +328,7 @@ export function useWebContainer() {
           ['next', 'dev', '--port', String(port)],
           NPM_SPAWN_OPTS
         )
+        activeDevProcessRef.current = proc
         pipeProcessOutput('npm-dev', proc.output)
 
         const quickDeadline = Date.now() + 6000
@@ -310,6 +343,7 @@ export function useWebContainer() {
         if (eaddrInUseRef.current) {
           const next = nextDevPort(port)
           if (next == null) break
+          stopActiveDevProcess(`      stopped dev server attempt on occupied port ${port}`)
           appendLine(`      port ${port} in use, trying ${next}…`)
           continue
         }
@@ -321,6 +355,7 @@ export function useWebContainer() {
           if (eaddrInUseRef.current) {
             const next = nextDevPort(port)
             if (next == null) break
+            stopActiveDevProcess(`      stopped dev server attempt on occupied port ${port}`)
             appendLine(`      port ${port} in use, trying ${next}…`)
             break
           }
@@ -334,14 +369,58 @@ export function useWebContainer() {
         `Could not start dev server (ports ${DEV_PORT_START}–${DEV_PORT_MAX} in use)`
       )
     },
-    [appendLine, appendSandboxError, pipeProcessOutput]
+    [appendLine, appendSandboxError, pipeProcessOutput, stopActiveDevProcess]
   )
 
-  const runFullPipeline = useCallback(
-    async (files: Record<string, string>) => {
-      if (fullPipelineRef.current) return fullPipelineRef.current
+  const writeFilesToSandbox = useCallback(
+    async (wc: WebContainer, patched: Record<string, string>) => {
+      appendLine('')
+      appendLine('$ patching files…')
+      for (const [path, contents] of Object.entries(patched)) {
+        const parts = path.split('/').filter(Boolean)
+        if (parts.length > 1) {
+          let dir = ''
+          for (let i = 0; i < parts.length - 1; i++) {
+            dir += (i === 0 ? '' : '/') + parts[i]
+            try {
+              await wc.fs.mkdir(dir)
+            } catch {
+              // directory may already exist
+            }
+          }
+        }
+        await wc.fs.writeFile(path, contents)
+        appendLine(`      wrote ${path}`)
+      }
 
-      const pipeline = runWebContainerOp(async () => {
+      const depsFp = depsFingerprintFromPatched(patched)
+      const depsTouched = Object.prototype.hasOwnProperty.call(patched, 'package.json')
+      const shouldInstall =
+        depsTouched && depsFp !== null && depsFp !== installedDepsFingerprintRef.current
+
+      if (shouldInstall) {
+        clearSandboxErrors()
+        setError(null)
+        await runNpmInstall(wc, '[deps] Installing new packages')
+        installedDepsFingerprintRef.current = depsFp
+        installCompletedRef.current = true
+      }
+
+      return patched
+    },
+    [appendLine, clearSandboxErrors, runNpmInstall]
+  )
+
+  /** Step 1–3: boot scaffold once, install once, dev server once */
+  const initializeSandbox = useCallback(
+    async (files?: Record<string, string>) => {
+      if (initPipelineRef.current) {
+        await initPipelineRef.current
+        return
+      }
+      if (sandboxInitializedRef.current) return
+
+      const init = runWebContainerOp(async () => {
         setTerminal('')
         terminalBufferRef.current = ''
         setError(null)
@@ -359,47 +438,86 @@ export function useWebContainer() {
           throw new Error(msg)
         }
 
-        try {
-          setStatus('booting')
-          appendLine('')
-          appendLine('[1/4] Booting WebContainer…')
-          const wc = await bootWebContainerOnce()
-          setInstance(wc)
-          appendLine('      ✓ WebContainer booted')
+        setStatus('booting')
+        appendLine('')
+        appendLine('[1/3] Booting WebContainer…')
+        const wc = await bootWebContainerOnce()
+        setInstance(wc)
+        appendLine('      ✓ WebContainer booted')
 
-          setStatus('booting')
-          appendLine('')
-          appendLine('[2/4] Mounting project files…')
-          const patched = patchFilesForWebContainer(files)
-          const fileCount = Object.keys(patched).length
-          await wc.mount(buildFileSystemTree(patched))
-          appendLine(`      ✓ Mounted ${fileCount} files`)
+        appendLine('')
+        appendLine('[2/3] Mounting fixed scaffold…')
+        const mountFiles = patchFilesForWebContainer(files ?? BASE_NEXT_SCAFFOLD)
+        await wc.mount(buildFileSystemTree(mountFiles))
+        appendLine(`      ✓ Mounted ${Object.keys(mountFiles).length} files`)
 
-          await runNpmInstall(wc)
-          const depsFp = depsFingerprintFromPatched(patched)
-          if (depsFp) {
-            installedDepsFingerprintRef.current = depsFp
-            installCompletedRef.current = true
-          }
-
-          appendLine('')
-          appendLine('[4/4] Starting dev server')
-          await startDevServerWithPortFallback(wc)
-
-          return patched
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Sandbox pipeline failed'
-          setStatus('error')
-          setError((prev) => prev ?? message)
-          appendLine('')
-          appendLine(`ERROR: ${message}`)
-          if (sandboxErrorsRef.current.length === 0 && /npm install failed/i.test(message)) {
-            const parsed = parseNpmErrors(terminalBufferRef.current)
-            if (parsed.length > 0) setParsedErrors(parsed)
-          }
-          throw err
+        await runNpmInstall(wc, '[2/3] Installing dependencies')
+        const depsFp = depsFingerprintFromPatched(mountFiles)
+        if (depsFp) {
+          installedDepsFingerprintRef.current = depsFp
+          installCompletedRef.current = true
         }
+
+        appendLine('')
+        appendLine('[3/3] Starting dev server (runs once)')
+        await startDevServerWithPortFallback(wc)
+
+        sandboxInitializedRef.current = true
       })
+
+      initPipelineRef.current = init
+      try {
+        await init
+      } finally {
+        initPipelineRef.current = null
+      }
+    },
+    [
+      appendLine,
+      clearSandboxErrors,
+      runNpmInstall,
+      startDevServerWithPortFallback,
+    ]
+  )
+
+  /** Step 4–5: patch files into running sandbox — HMR updates preview */
+  const writeFileDeltas = useCallback(
+    async (changedFiles: Record<string, string>) => {
+      if (Object.keys(changedFiles).length === 0) return changedFiles
+
+      if (!sandboxInitializedRef.current) {
+        await initializeSandbox({ ...BASE_NEXT_SCAFFOLD, ...changedFiles })
+        return patchFilesForWebContainer(changedFiles)
+      }
+
+      return runWebContainerOp(async () => {
+        const wc = await bootWebContainerOnce()
+        setInstance(wc)
+        const patched = patchFilesForWebContainer(changedFiles)
+        await writeFilesToSandbox(wc, patched)
+        if (!serverReadyRef.current) {
+          await startDevServerWithPortFallback(wc)
+        } else {
+          setStatus('ready')
+        }
+        return patched
+      })
+    },
+    [initializeSandbox, startDevServerWithPortFallback, writeFilesToSandbox]
+  )
+
+  const runFullPipeline = useCallback(
+    async (files: Record<string, string>) => {
+      if (fullPipelineRef.current) return fullPipelineRef.current
+
+      const pipeline = (async () => {
+        if (!sandboxInitializedRef.current) {
+          await initializeSandbox(files)
+        } else {
+          await writeFileDeltas(files)
+        }
+        return patchFilesForWebContainer(files)
+      })()
 
       fullPipelineRef.current = pipeline
       try {
@@ -408,15 +526,7 @@ export function useWebContainer() {
         fullPipelineRef.current = null
       }
     },
-    [
-      appendLine,
-      appendSandboxError,
-      clearSandboxErrors,
-      pipeProcessOutput,
-      runNpmInstall,
-      setParsedErrors,
-      startDevServerWithPortFallback,
-    ]
+    [initializeSandbox, writeFileDeltas]
   )
 
   const mountFiles = useCallback(
@@ -436,54 +546,9 @@ export function useWebContainer() {
 
   const updateFiles = useCallback(
     async (changedFiles: Record<string, string>) => {
-      return runWebContainerOp(async () => {
-        const webContainer = await bootWebContainerOnce()
-        setInstance(webContainer)
-        const patched = patchFilesForWebContainer(changedFiles)
-        const paths = Object.keys(patched)
-
-        appendLine('')
-        appendLine('$ updating files…')
-        for (const [path, contents] of Object.entries(patched)) {
-          await webContainer.fs.writeFile(path, contents)
-          appendLine(`      wrote ${path}`)
-        }
-
-        const depsFp = depsFingerprintFromPatched(patched)
-        const depsTouched = paths.some(
-          (p) => p === 'package.json' || p === 'package-lock.json'
-        )
-        const shouldInstall =
-          depsTouched && depsFp !== null && depsFp !== installedDepsFingerprintRef.current
-
-        if (shouldInstall) {
-          clearSandboxErrors()
-          setError(null)
-          await runNpmInstall(webContainer, '[reinstall] Installing dependencies')
-          installedDepsFingerprintRef.current = depsFp
-          installCompletedRef.current = true
-          if (!serverReadyRef.current) {
-            await startDevServerWithPortFallback(webContainer)
-          } else {
-            appendLine(
-              `      (dev server still running on port ${activeDevPortRef.current ?? DEV_PORT_START})`
-            )
-          }
-          setStatus(serverReadyRef.current ? 'ready' : 'starting')
-        } else if (depsTouched && depsFp === installedDepsFingerprintRef.current) {
-          appendLine('      dependencies unchanged — skipped npm install')
-        }
-
-        return patched
-      })
+      return writeFileDeltas(changedFiles)
     },
-    [
-      appendLine,
-      clearSandboxErrors,
-      pipeProcessOutput,
-      runNpmInstall,
-      startDevServerWithPortFallback,
-    ]
+    [writeFileDeltas]
   )
 
   const getErrorLines = useCallback(() => {
@@ -512,6 +577,8 @@ export function useWebContainer() {
     startDevServer,
     runFullPipeline,
     updateFiles,
+    writeFileDeltas,
+    initializeSandbox,
     getErrorLines,
     clearBuildErrors: clearSandboxErrors,
     clearSandboxErrors,

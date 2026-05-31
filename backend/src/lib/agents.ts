@@ -1,7 +1,16 @@
 import { callOpenAI } from './openai.js'
 import { normalizeProjectArchitecture } from './projectStructure.js'
+import { normalizeProductCode } from './normalizeProductCode.js'
+import {
+  mergeScaffoldWithProductFiles,
+  stripScaffoldPaths,
+  buildScaffoldContract,
+  type ExtraDependency,
+} from './scaffold.js'
 
 export type GeneratedFiles = Record<string, string>
+export type { ExtraDependency }
+export { mergeScaffoldWithProductFiles, stripScaffoldPaths }
 
 export interface ChunkedIntent {
   appName: string
@@ -81,6 +90,8 @@ export interface GenerationSummary {
 const NANO_MODEL = 'gpt-5.4-nano-2026-03-17'
 const CODEX_MODEL = 'gpt-5.1-codex-mini'
 
+const SCAFFOLD_CONTRACT = buildScaffoldContract()
+
 function stripCodeFences(raw: string): string {
   return raw
     .replace(/^```json\n?/, '')
@@ -133,6 +144,8 @@ Extract every design detail the user mentions. No markdown.`
 
 const PLANNER_SYSTEM = `You are a senior Next.js architect. Create a detailed technical plan from the structured intent JSON.
 
+${SCAFFOLD_CONTRACT}
+
 FIXED PROJECT ARCHITECTURE (never use components/sections/ or other folders):
 - Landing sections: components/site/<PascalName>.tsx (e.g. components/site/HeroSection.tsx)
 - Shared UI: components/ui/<PascalName>.tsx
@@ -156,22 +169,41 @@ Return ONLY valid JSON:
 
 Always include the turbopack avoidList entries above in avoidList (merge with any other items). No markdown.`
 
+const DEPENDENCY_PLANNER_SYSTEM = `You decide if the user's app request needs npm packages beyond the fixed base template.
+
+${SCAFFOLD_CONTRACT}
+
+Return ONLY valid JSON:
+{
+  "extraPackages": [
+    { "name": "package-name", "version": "exact-version", "section": "dependencies" }
+  ]
+}
+
+Rules:
+- Return empty extraPackages [] if base template is sufficient (most landing pages need nothing extra)
+- Only add packages truly required by the user request (e.g. recharts for charts, date-fns for dates)
+- Use exact versions, never "latest"
+- Never re-add packages already in INSTALLED DEPENDENCIES above
+- section is "dependencies" or "devDependencies"
+No markdown.`
+
 const CODING_SYSTEM = `You are an expert Next.js developer. Generate production-ready Next.js 14 App Router code with TypeScript and Tailwind CSS.
 
-Follow the coding plan EXACTLY. Use only listed dependencies. Follow codingInstructions. Avoid everything in avoidList.
+${SCAFFOLD_CONTRACT}
+
+IMPORTANT: A fixed scaffold already exists (package.json, configs, app/layout.tsx, app/globals.css, lib/utils.ts).
+DO NOT return scaffold files. Return ONLY product/application files you create or change.
+
+Follow the coding plan EXACTLY. Use only packages from INSTALLED DEPENDENCIES. Follow codingInstructions. Avoid everything in avoidList.
 
 Required project layout (use these exact path keys as flat strings):
-- package.json
-- next.config.js
-- tsconfig.json
-- tailwind.config.js
-- postcss.config.js
-- app/layout.tsx
-- app/page.tsx
-- app/globals.css
+- app/page.tsx (main page — you SHOULD return this)
 - components/site/<SectionName>.tsx for page sections (HeroSection, FeatureCards, etc.)
 - components/ui/<Name>.tsx for reusable UI primitives only
-- lib/ as needed under lib/*.ts
+- lib/ as needed under lib/*.ts (never lib/utils.ts — scaffold owns it)
+
+NEVER return: package.json, next.config.js, tsconfig.json, tailwind.config.js, postcss.config.js, lib/utils.ts, app/layout.tsx, app/globals.css, package-lock.json
 
 ARCHITECTURE CONSISTENCY (critical on edits):
 - NEVER switch folder layout between runs (no components/sections/, no src/components/)
@@ -180,93 +212,24 @@ ARCHITECTURE CONSISTENCY (critical on edits):
 - If you add a section, create the .tsx file AND import it in app/page.tsx in the same response
 - If you rename a component file, update every import in app/page.tsx to match
 
-WEBCONTAINERS COMPATIBILITY RULES — NON-NEGOTIABLE:
-
-PACKAGE.JSON RULES:
-- scripts.dev MUST be: next dev --port 3000 (Next 14.2.29 — do NOT use --webpack; that flag does not exist on Next 14)
-- scripts.build MUST be: next build
-- scripts.start MUST be: next start --port 3000
-- next version MUST be exactly: 14.2.29 (not latest)
-- react version MUST be exactly: 18.3.1 (not latest)
-- react-dom version MUST be exactly: 18.3.1 (not latest)
-- typescript MUST be exactly: 5.3.3
-- @types/react MUST be exactly: 18.3.1
-- @types/node MUST be exactly: 20.11.5
-- tailwindcss MUST be exactly: 3.4.1
-- autoprefixer MUST be exactly: 10.4.17
-- postcss MUST be exactly: 8.4.33
-- Do NOT use latest for any package version
-- Do NOT include native Node.js addons or packages requiring native binaries
-- Do NOT use packages requiring filesystem access outside the project (e.g. sharp)
-- Do NOT generate package-lock.json — the preview sandbox runs npm install without a lockfile
-
-NEXT.CONFIG.JS RULES:
-- MUST use CommonJS module.exports syntax (NOT export default, NOT .mjs)
-- MUST NOT enable turbopack or experimental.turbo
-- MUST NOT use images.domains requiring external fetch at build time
-- Keep minimal:
-/** @type {import('next').NextConfig} */
-const nextConfig = { reactStrictMode: true }
-module.exports = nextConfig
-
-TYPESCRIPT RULES (tsconfig.json):
-- compilerOptions: target ES2017, lib [dom, dom.iterable, esnext], allowJs true, skipLibCheck true, strict false, forceConsistentCasingInFileNames true, noEmit true, esModuleInterop true, module esnext, moduleResolution bundler, resolveJsonModule true, isolatedModules true, jsx preserve, incremental true, plugins [{ name: next }], paths { "@/*": ["./*"] }
-- include: next-env.d.ts, **/*.ts, **/*.tsx, .next/types/**/*.ts
-- exclude: node_modules
-
-TAILWIND RULES (tailwind.config.js):
-- CommonJS module.exports only
-- content MUST include: ./app/**/*.{js,ts,jsx,tsx,mdx}, ./components/**/*.{js,ts,jsx,tsx,mdx}, ./pages/**/*.{js,ts,jsx,tsx,mdx}
-
-POSTCSS RULES (postcss.config.js):
-- CommonJS module.exports with tailwindcss and autoprefixer plugins
-
-APP DIRECTORY RULES:
-- app/layout.tsx with html and body tags, imports ./globals.css (Server Component — no hooks, no framer-motion)
-- app/page.tsx as main page (Server OK — import client sections as children)
-- app/globals.css with @tailwind base; @tailwind components; @tailwind utilities;
-- ANY file importing framer-motion, @radix-ui/*, or using useState/useEffect/onClick MUST start with 'use client' as line 1
-- components/site/*.tsx with motion or interactivity MUST be Client Components ('use client')
-- Do NOT use components/sections/ — use components/site/ only
-- Server components MUST NOT import framer-motion or @radix-ui/*
-
-IMAGE RULES:
-- Do NOT use next/image for external URLs unless domains configured in next.config.js
-- Use <img src="https://picsum.photos/W/H" /> or CSS placeholders for external images
-
-IMPORT RULES:
-- No node:* imports in client components
-- No fs, path, os in client code; server logic in app/api/ routes only
-- lucide-react and shadcn-style components OK if dependencies listed
-
-SHADCN/UI RULES (EXACT versions — WebContainer scaffold):
-- next@14.2.29, react@18.3.1, react-dom@18.3.1, typescript@5.3.3
-- class-variance-authority@0.7.1, clsx@2.1.1, tailwind-merge@2.6.0, tailwindcss-animate@1.0.7, lucide-react@0.462.0
-- @radix-ui/react-slot@1.2.3 (NEVER 1.0.x), @radix-ui/react-dialog@1.1.14, @radix-ui/react-dropdown-menu@2.1.15
-- @radix-ui/react-label@2.1.7, @radix-ui/react-separator@1.1.7, @radix-ui/react-tabs@1.1.12, @radix-ui/react-toast@1.2.14
-- @radix-ui/react-tooltip@1.2.7, @radix-ui/react-accordion@1.2.11, @radix-ui/react-checkbox@1.3.2, @radix-ui/react-select@2.2.5
-- @radix-ui/react-popover@1.1.14, @radix-ui/react-avatar@1.1.10, @radix-ui/react-switch@1.2.5, @radix-ui/react-scroll-area@1.2.9
-- Do NOT use ^ or latest; use exact versions above. Do NOT include package-lock.json (sandbox generates it).
-- Copy component source into components/ui/ — do NOT reference shadcn CLI
-
-FRAMER-MOTION (WebContainer):
+WEBCONTAINER RULES:
+- scripts.dev: next dev --port 3000 (Next 14 — no --webpack flag)
+- next.config.js: CommonJS module.exports only, no turbopack
+- Use <img> for external images, not next/image with unconfigured domains
 - framer-motion@11.11.17 only in Client Components ('use client' first line)
-- Never import motion from framer-motion in app/page.tsx unless page.tsx has 'use client'
-- Prefer splitting: server page imports <HeroSection /> where HeroSection.tsx has 'use client'
+- Copy shadcn component source into components/ui/ — do NOT use shadcn CLI
 
 COMMON ERROR PREVENTION:
-- async server components must be async
-- client hooks need 'use client'
-- No process.env in client components; use NEXT_PUBLIC_ for client env
-- No dynamic import with ssr:false in app dir — use 'use client'
+- Slot MUST be from '@radix-ui/react-slot' — NEVER 'react-slot'
+- cn() from '@/lib/utils' — file already exists, do not recreate
+- Icons from 'lucide-react' only
+- Server components must not import framer-motion or @radix-ui/*
 - ALL .js config files use module.exports only
-
-FONT RULES:
-- Use next/font in layout.tsx OR system-ui only — no @import Google Fonts in CSS
+- Use next/font in layout OR system-ui — no @import Google Fonts in CSS
 
 OUTPUT PATH RULES:
-- Use forward slashes only (app/page.tsx not app\\page.tsx)
-- No CDN script imports; all deps in package.json only
+- Forward slashes only (app/page.tsx not app\\page.tsx)
+- No CDN script tags; all deps must be in INSTALLED DEPENDENCIES
 
 Output format:
 - Return ONLY a single JSON object
@@ -280,11 +243,15 @@ No markdown. No explanation.`
 
 const FIXER_SYSTEM = `You are a senior debugging engineer. Fix specific errors in a Next.js app.
 
+${SCAFFOLD_CONTRACT}
+
 Return ONLY a JSON object of files that need to change. Do not return unchanged files. No markdown.
 
 MODULE NOT FOUND / import path errors:
+- 'react-slot' → '@radix-ui/react-slot'
 - Align app/page.tsx imports with actual files under components/site/ (never components/sections/)
 - Create missing section files or remove broken imports and JSX in the same fix
+- cn() from '@/lib/utils' (already in scaffold)
 
 RSC / createContext ERRORS:
 - Add 'use client' to the component file (e.g. components/site/HeroSection.tsx), not only app/page.tsx
@@ -292,12 +259,11 @@ RSC / createContext ERRORS:
 
 DEV SCRIPT ERRORS (unknown option '--webpack'):
 - Next 14.x does not support --webpack; use "next dev --port 3000" only
-- Pin next to 14.2.29 and fix package.json scripts.dev
 
 DEPENDENCY ERRORS (ETARGET, EIO, notarget, ERESOLVE):
-- Fix ONLY package.json with exact scaffold versions (Next 14.2.29, @radix-ui/react-slot@1.2.3, class-variance-authority@0.7.1, etc.)
+- Fix ONLY package.json with exact scaffold versions from INSTALLED DEPENDENCIES
 - Remove package-lock.json from output if present
-- Never use @radix-ui/*@1.0.x — bump to scaffold versions
+- Never use @radix-ui/*@1.0.x — use scaffold versions
 - Do NOT regenerate the whole app for a single bad dependency version
 
 OTHER ERRORS:
@@ -329,6 +295,21 @@ export async function runPlanner(intent: ChunkedIntent): Promise<CodingPlan> {
     JSON.stringify(intent, null, 2)
   )
   return parseJsonResponse<CodingPlan>(raw)
+}
+
+export interface DependencyPlan {
+  extraPackages: ExtraDependency[]
+}
+
+export async function runDependencyPlanner(
+  prompt: string,
+  intent: ChunkedIntent,
+  plan: CodingPlan
+): Promise<ExtraDependency[]> {
+  const userContent = JSON.stringify({ prompt, intent, planSummary: plan.dependencyList })
+  const raw = await callOpenAI(NANO_MODEL, DEPENDENCY_PLANNER_SYSTEM, userContent)
+  const parsed = parseJsonResponse<DependencyPlan>(raw)
+  return Array.isArray(parsed.extraPackages) ? parsed.extraPackages : []
 }
 
 export function normalizeGeneratedFiles(raw: unknown): GeneratedFiles {
@@ -374,7 +355,7 @@ export function normalizeGeneratedFiles(raw: unknown): GeneratedFiles {
     `[runtime42][parse] normalized ${Object.keys(result).length} files; sample: ${sample.join(', ')}`
   )
 
-  return normalizeProjectArchitecture(result)
+  return normalizeProductCode(normalizeProjectArchitecture(result))
 }
 
 function parseFilesObject(raw: string): GeneratedFiles {
@@ -396,7 +377,7 @@ export async function runCodingAgent(
   })
 
   const raw = await callOpenAI(CODEX_MODEL, CODING_SYSTEM, userContent, 0.4)
-  return parseFilesObject(raw)
+  return stripScaffoldPaths(parseFilesObject(raw))
 }
 
 export async function runErrorFixer(
@@ -410,7 +391,7 @@ export async function runErrorFixer(
     plan,
   })
   const raw = await callOpenAI(CODEX_MODEL, FIXER_SYSTEM, userContent, 0.2)
-  return parseFilesObject(raw)
+  return stripScaffoldPaths(parseFilesObject(raw))
 }
 
 export async function runSummarizer(

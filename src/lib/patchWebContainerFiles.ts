@@ -1,4 +1,4 @@
-import { ensureUseClientDirective } from '@/lib/ensureUseClient'
+import { normalizeProductFiles } from '@/lib/normalizeProductSource'
 
 /** Mirror backend normalizeProjectArchitecture for files loaded only on the client */
 function rewriteSectionsPaths(files: WebContainerFiles): WebContainerFiles {
@@ -108,7 +108,9 @@ function fixDevScript(pkg: Record<string, unknown>): boolean {
 }
 
 export function patchFilesForWebContainer(files: WebContainerFiles): WebContainerFiles {
-  const patched: WebContainerFiles = rewriteSectionsPaths({ ...files })
+  const patched: WebContainerFiles = normalizeProductFiles(
+    rewriteSectionsPaths({ ...files })
+  )
   let depsChanged = false
 
   if (patched['package.json']) {
@@ -136,22 +138,6 @@ const nextConfig = {
 module.exports = nextConfig
 `
     console.log('[runtime42] Reset next.config.js for WebContainer')
-  } else if (!patched['next.config.js']) {
-    patched['next.config.js'] = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-}
-module.exports = nextConfig
-`
-  }
-
-  for (const [path, content] of Object.entries(patched)) {
-    if (!/\.(tsx|jsx)$/.test(path)) continue
-    const fixed = ensureUseClientDirective(path, content)
-    if (fixed !== content) {
-      patched[path] = fixed
-      console.log(`[runtime42] Added 'use client' to ${path}`)
-    }
   }
 
   return patched

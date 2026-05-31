@@ -27,6 +27,7 @@ import {
   type CheckpointStatus,
 } from '@/lib/api';
 import { logCheckpoint } from '@/lib/pipelineLog';
+import { BASE_NEXT_SCAFFOLD } from '@/lib/baseScaffold';
 import { useWebContainer, type WebContainerFiles } from '@/hooks/useWebContainer';
 import FileSearch from '@/components/FileSearch';
 import FileTree from '@/components/editor/FileTree';
@@ -36,6 +37,7 @@ import ThinkingInstruction from '@/components/editor/ThinkingInstruction';
 import StreamingAssistantResponse from '@/components/editor/StreamingAssistantResponse';
 import SuggestionsList from '@/components/editor/SuggestionsList';
 import FileDiffViewer from '@/components/editor/FileDiffViewer';
+import BuildingScreen from '@/components/BuildingScreen';
 import { sandboxErrorsToSuggestions } from '@/lib/sandboxErrors';
 import type { FileChange } from '@/components/editor/EditedFilesList';
 import { toast } from 'sonner';
@@ -81,6 +83,17 @@ function sortFilePaths(paths: string[]) {
     return 4;
   };
   return [...paths].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+}
+
+function computeGenerationProgress(steps: PipelineStep[]) {
+  if (steps.length === 0) return 8;
+  const maxAgent = Math.max(6, ...steps.map((step) => step.agent));
+  const score = steps.reduce((sum, step) => {
+    if (step.status === 'done') return sum + 1;
+    if (step.status === 'active') return sum + 0.55;
+    return sum;
+  }, 0);
+  return Math.min(62, 8 + (score / maxAgent) * 54);
 }
 
 function parseMetadata<T>(raw: string | null): T | null {
@@ -305,6 +318,18 @@ const ProjectEditor = () => {
     }
   })();
 
+  const previewProgress = useMemo(() => {
+    if (webContainer.previewUrl) return 100;
+    if (webContainer.status === 'starting') return 92;
+    if (webContainer.status === 'installing') return 78;
+    if (webContainer.status === 'booting') return 68;
+    if (livePhase === 'done') return 64;
+    if (isGenerating) return computeGenerationProgress(pipelineSteps);
+    return 10;
+  }, [isGenerating, livePhase, pipelineSteps, webContainer.previewUrl, webContainer.status]);
+
+  const showPreviewLoader = !webContainer.previewUrl && webContainer.status !== 'error' && !webContainer.error;
+
   useEffect(() => {
     if (
       pendingPreviewRef.current &&
@@ -316,34 +341,26 @@ const ProjectEditor = () => {
     }
   }, [webContainer.status, webContainer.previewUrl]);
 
-  useEffect(() => {
-    if (
-      webContainer.status === 'booting' ||
-      webContainer.status === 'installing' ||
-      webContainer.status === 'starting'
-    ) {
-      setActiveTab('code');
-    }
-  }, [webContainer.status]);
+  const sandboxBootstrappedRef = useRef(false);
 
   const bootWithFiles = useCallback(async (files: WebContainerFiles, changedOnly?: WebContainerFiles) => {
-    if (webContainerRunningRef.current) {
-      const patched = await webContainer.updateFiles(changedOnly ?? files);
-      setGeneratedFiles((prev) => ({ ...prev, ...patched }));
+    if (!sandboxBootstrappedRef.current) {
+      try {
+        await webContainer.initializeSandbox(files);
+        sandboxBootstrappedRef.current = true;
+        webContainerRunningRef.current = true;
+        pendingPreviewRef.current = true;
+        setGeneratedFiles((prev) => ({ ...files, ...prev }));
+      } catch (err) {
+        throw err instanceof Error ? err : new Error('Failed to boot preview');
+      }
       return;
     }
 
-    try {
-      const patched = await webContainer.runFullPipeline(files);
-      setGeneratedFiles(patched);
-      setSelectedCodeFile(
-        patched['app/page.tsx'] ? 'app/page.tsx' : Object.keys(patched)[0] ?? 'app/page.tsx'
-      );
-      webContainerRunningRef.current = true;
-      pendingPreviewRef.current = true;
-    } catch (err) {
-      throw err instanceof Error ? err : new Error('Failed to boot preview');
-    }
+    const delta = changedOnly ?? files;
+    if (Object.keys(delta).length === 0) return;
+    const patched = await webContainer.writeFileDeltas(delta);
+    setGeneratedFiles((prev) => ({ ...prev, ...patched }));
   }, [webContainer]);
 
   const resolveFileContent = useCallback(
@@ -409,6 +426,7 @@ const ProjectEditor = () => {
     prevProjectIdRef.current = projectId;
     webContainer.prepareNewProject();
     webContainerRunningRef.current = false;
+    sandboxBootstrappedRef.current = false;
     autoStartedProjectIdRef.current = null;
     setDiffView(null);
   }, [projectId, webContainer]);
@@ -418,38 +436,52 @@ const ProjectEditor = () => {
     if (project?.chatTitle) setProjectName(project.chatTitle);
   }, [project?.title, project?.chatTitle]);
 
-  const animateFilesReveal = useCallback(async (files: WebContainerFiles) => {
-    const paths = sortFilePaths(Object.keys(files));
-    const partial: WebContainerFiles = { ...generatedFiles };
-
-    for (const path of paths) {
-      setWritingFilePath(path);
+  const applyLiveFileDelta = useCallback(
+    async (path: string, content: string) => {
+      setGeneratedFiles((prev) => ({ ...prev, [path]: content }));
       setSelectedCodeFile(path);
-      partial[path] = files[path];
-      setGeneratedFiles({ ...partial });
-      setAnimatingCode(true);
-      await new Promise((r) => setTimeout(r, 350));
-      setAnimatingCode(false);
-    }
-    setWritingFilePath(null);
-  }, [generatedFiles]);
+      setWritingFilePath(path);
+
+      if (!sandboxBootstrappedRef.current) {
+        try {
+          await webContainer.initializeSandbox(BASE_NEXT_SCAFFOLD);
+          sandboxBootstrappedRef.current = true;
+          webContainerRunningRef.current = true;
+          pendingPreviewRef.current = true;
+        } catch {
+          // bootstrap will retry on complete
+        }
+      }
+
+      if (sandboxBootstrappedRef.current) {
+        webContainer.writeFileDeltas({ [path]: content }).catch(() => {
+          // non-fatal — complete event will sync
+        });
+      }
+    },
+    [webContainer]
+  );
 
   const applyGenerationResult = useCallback(
     async (files: WebContainerFiles) => {
-      setActiveTab('code');
-      await animateFilesReveal(files);
       const before = filesBeforeGenerationRef.current;
       const changedOnly: WebContainerFiles = {};
       for (const [path, content] of Object.entries(files)) {
         if (before[path] !== content) changedOnly[path] = content;
       }
-      await bootWithFiles(
-        files,
-        webContainerRunningRef.current ? changedOnly : undefined
-      );
+
+      if (Object.keys(changedOnly).length > 0) {
+        const firstPath = sortFilePaths(Object.keys(changedOnly))[0];
+        if (firstPath) setSelectedCodeFile(firstPath);
+        await bootWithFiles(files, changedOnly);
+      } else if (!sandboxBootstrappedRef.current) {
+        await bootWithFiles(files);
+      }
+
       pendingPreviewRef.current = true;
+      setWritingFilePath(null);
     },
-    [animateFilesReveal, bootWithFiles]
+    [bootWithFiles]
   );
 
   const finishLiveTurn = useCallback(() => {
@@ -486,17 +518,42 @@ const ProjectEditor = () => {
     setLiveFileChanges([]);
     filesBeforeGenerationRef.current = { ...generatedFiles };
     setIsGenerating(true);
+    setActiveTab('preview');
     setPipelineSteps([]);
+
+    // Bootstrap fixed scaffold immediately so install + dev start while AI writes
+    if (!sandboxBootstrappedRef.current) {
+      webContainer.initializeSandbox(BASE_NEXT_SCAFFOLD).then(() => {
+        sandboxBootstrappedRef.current = true;
+        webContainerRunningRef.current = true;
+        pendingPreviewRef.current = true;
+      }).catch(() => {
+        // will retry during file deltas / complete
+      });
+    }
 
     const handleStreamEvent = (event: PipelineCheckpoint) => {
       logCheckpoint(event);
       if (event.type === 'checkpoint') {
         setPipelineSteps((prev) => upsertPipelineStep(prev, event));
-        if (event.agent === 3 && event.status === 'active') {
-          setActiveTab('code');
-        }
-        if (event.agent === 4 && event.status === 'active') {
-          setActiveTab('code');
+      }
+      if (event.type === 'files_delta' && event.files) {
+        for (const [path, content] of Object.entries(event.files)) {
+          void applyLiveFileDelta(path, content);
+          setLiveFileChanges((prev) => {
+            const idx = prev.findIndex((c) => c.path === path);
+            const entry = {
+              path,
+              before: filesBeforeGenerationRef.current[path] ?? '',
+              after: content,
+            };
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = entry;
+              return next;
+            }
+            return [...prev, entry];
+          });
         }
       }
     };
@@ -566,6 +623,7 @@ const ProjectEditor = () => {
     }
   }, [
     applyGenerationResult,
+    applyLiveFileDelta,
     finishLiveTurn,
     projectId,
     queryClient,
@@ -922,14 +980,16 @@ const ProjectEditor = () => {
                   </div>
                 ) : (
                   <>
-                    <div className={`h-9 px-4 flex items-center gap-2 text-xs ${webContainer.status === 'error' || webContainer.error ? 'text-destructive' : 'text-muted-foreground'} border-b border-border/50`}>
-                      {webContainer.status === 'ready' && <span className="w-2 h-2 rounded-full bg-green-500" />}
-                      <span>
-                        {webContainer.error ||
-                          statusMessage ||
-                          'Waiting for preview...'}
-                      </span>
-                    </div>
+                    {(webContainer.previewUrl || webContainer.status === 'error' || webContainer.error) && (
+                      <div className={`h-9 px-4 flex items-center gap-2 text-xs ${webContainer.status === 'error' || webContainer.error ? 'text-destructive' : 'text-muted-foreground'} border-b border-border/50`}>
+                        {webContainer.status === 'ready' && <span className="w-2 h-2 rounded-full bg-green-500" />}
+                        <span>
+                          {webContainer.error ||
+                            statusMessage ||
+                            'Preview ready'}
+                        </span>
+                      </div>
+                    )}
                     <div className={`flex-1 flex items-center justify-center ${activeDevice !== 'desktop' ? 'bg-muted/30 p-4' : ''} overflow-auto scrollbar-hide`}>
                       <div className={`h-full ${deviceSizes[activeDevice]} ${activeDevice !== 'desktop' ? 'border border-border rounded-3xl shadow-2xl bg-background overflow-hidden' : ''}`}>
                         <div ref={previewContainerRef} className="h-full w-full overflow-auto scrollbar-hide">
@@ -941,6 +1001,11 @@ const ProjectEditor = () => {
                               width="100%"
                               height="100%"
                               className="w-full h-full border-0 bg-white"
+                            />
+                          ) : showPreviewLoader ? (
+                            <BuildingScreen
+                              message="Getting ready.."
+                              progress={previewProgress}
                             />
                           ) : (
                             <div className="h-full flex items-center justify-center p-6">

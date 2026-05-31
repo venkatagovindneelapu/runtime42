@@ -180,6 +180,6 @@ export function attachServerReady(handler: (port: number, url: string) => void) 
 }
 
 export function resetProjectRuntimeState() {
-  // Reuse the single global WebContainer instance — never call boot() again
-  serverReadyHandlers.clear()
+  // Reuse the single global WebContainer instance. Keep server-ready handlers
+  // attached so the active editor can receive the preview URL after a reset.
 }

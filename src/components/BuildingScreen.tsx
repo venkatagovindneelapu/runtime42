@@ -11,16 +11,20 @@ const tips = [
 
 interface BuildingScreenProps {
   message?: string;
+  progress?: number;
 }
 
-const BuildingScreen = ({ message = 'Building your idea..' }: BuildingScreenProps) => {
-  const [progress, setProgress] = useState(0);
+const BuildingScreen = ({ message = 'Building your idea..', progress }: BuildingScreenProps) => {
+  const [animatedProgress, setAnimatedProgress] = useState(0);
   const [currentTip, setCurrentTip] = useState(0);
+  const displayedProgress = Math.max(0, Math.min(100, progress ?? animatedProgress));
 
   useEffect(() => {
+    if (progress !== undefined) return;
+
     // Animate progress bar
     const progressInterval = setInterval(() => {
-      setProgress(prev => {
+      setAnimatedProgress(prev => {
         if (prev >= 85) return prev;
         return prev + Math.random() * 15;
       });
@@ -35,7 +39,16 @@ const BuildingScreen = ({ message = 'Building your idea..' }: BuildingScreenProp
       clearInterval(progressInterval);
       clearInterval(tipInterval);
     };
-  }, []);
+  }, [progress]);
+
+  useEffect(() => {
+    if (progress === undefined) return;
+    const tipInterval = setInterval(() => {
+      setCurrentTip(prev => (prev + 1) % tips.length);
+    }, 4000);
+
+    return () => clearInterval(tipInterval);
+  }, [progress]);
 
   const CurrentTipIcon = tips[currentTip].icon;
 
@@ -71,7 +84,7 @@ const BuildingScreen = ({ message = 'Building your idea..' }: BuildingScreenProp
         <div className="w-64 h-1 bg-muted rounded-full overflow-hidden mb-16">
           <div 
             className="h-full bg-gradient-to-r from-primary/60 to-primary rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
+            style={{ width: `${displayedProgress}%` }}
           />
         </div>
 

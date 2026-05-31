@@ -71,6 +71,7 @@ export interface PipelineCheckpoint {
   detail?: string
   status?: CheckpointStatus
   paths?: string[]
+  files?: Record<string, string>
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
