@@ -1,5 +1,5 @@
 import { Home, Search, LayoutGrid, Star, Users, Compass, FileBox, GraduationCap, Settings, Sun, Moon, HelpCircle, FileText, Users2, LogOut, ChevronRight, Check } from 'lucide-react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import logo from '@/assets/runtime42-logo.png';
 import {
@@ -27,6 +27,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/contexts/AuthContext';
 
 const mainItems = [
   { title: 'Home', url: '/dashboard', icon: Home },
@@ -47,12 +48,12 @@ const resourceItems = [
 
 export function AppSidebar() {
   const { state } = useSidebar();
-  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
+  const { signOut } = useAuth();
   const collapsed = state === 'collapsed';
 
   const handleSignOut = () => {
-    navigate('/auth');
+    signOut();
   };
 
   return (

@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Plus, Paperclip, Palette, MessageSquare, AudioLines, ArrowUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 
 const HeroSection = () => {
   const [inputValue, setInputValue] = useState('');
+  const { isAuthenticated, isLoading } = useAuth();
 
   const handleSubmit = () => {
     if (inputValue.trim()) {
@@ -64,12 +67,21 @@ const HeroSection = () => {
             >
               Request a demo
             </a>
-            <a
-              href="#start"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-foreground text-background font-medium rounded-full hover:bg-foreground/90 transition-all"
-            >
-              Sign up for free
-            </a>
+            {!isLoading && isAuthenticated ? (
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-foreground text-background font-medium rounded-full hover:bg-foreground/90 transition-all"
+              >
+                Dashboard
+              </Link>
+            ) : (
+              <a
+                href="#start"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-foreground text-background font-medium rounded-full hover:bg-foreground/90 transition-all"
+              >
+                Sign up for free
+              </a>
+            )}
           </div>
         </div>
 

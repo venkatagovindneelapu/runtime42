@@ -3,11 +3,13 @@ import { Menu, X, Sun, Moon } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Link } from 'react-router-dom';
 import logo from '@/assets/runtime42-logo.png';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { resolvedTheme, setTheme } = useTheme();
+  const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     setMounted(true);
@@ -54,18 +56,29 @@ const Header = () => {
               >
                 {mounted && (resolvedTheme === 'dark' ? <Sun size={18} /> : <Moon size={18} />)}
               </button>
-              <Link
-                to="/auth"
-                className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-full hover:bg-foreground/90 transition-colors"
-              >
-                Sign in
-              </Link>
-              <Link
-                to="/auth"
-                className="px-4 py-2 border border-border text-foreground text-sm font-medium rounded-full hover:bg-muted/50 transition-colors"
-              >
-                Sign up
-              </Link>
+              {!isLoading && isAuthenticated ? (
+                <Link
+                  to="/dashboard"
+                  className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-full hover:bg-foreground/90 transition-colors"
+                >
+                  Dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    to="/auth"
+                    className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-full hover:bg-foreground/90 transition-colors"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    to="/auth"
+                    className="px-4 py-2 border border-border text-foreground text-sm font-medium rounded-full hover:bg-muted/50 transition-colors"
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
             </div>
 
             {/* Mobile: Theme Toggle + Menu Button */}
@@ -102,20 +115,32 @@ const Header = () => {
                 </a>
               ))}
               <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-border">
-                <Link
-                  to="/auth"
-                  className="px-5 py-2.5 bg-foreground text-background text-sm font-medium rounded-full text-center"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Sign in
-                </Link>
-                <Link
-                  to="/auth"
-                  className="px-5 py-2.5 border border-border text-foreground text-sm font-medium rounded-full text-center"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Sign up
-                </Link>
+                {!isLoading && isAuthenticated ? (
+                  <Link
+                    to="/dashboard"
+                    className="px-5 py-2.5 bg-foreground text-background text-sm font-medium rounded-full text-center"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Dashboard
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      to="/auth"
+                      className="px-5 py-2.5 bg-foreground text-background text-sm font-medium rounded-full text-center"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      Sign in
+                    </Link>
+                    <Link
+                      to="/auth"
+                      className="px-5 py-2.5 border border-border text-foreground text-sm font-medium rounded-full text-center"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      Sign up
+                    </Link>
+                  </>
+                )}
               </div>
             </nav>
           </div>
