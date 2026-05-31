@@ -1,4 +1,5 @@
-import type { GeneratedFiles } from './agents.js'
+import type { GeneratedFiles } from './projectStructure.js'
+import { SCAFFOLD_UI_FILES, SCAFFOLD_UI_PATHS, SCAFFOLD_PROVIDER_FILES, SCAFFOLD_PROVIDER_PATHS } from './scaffoldUi.js'
 
 /** Exact dependency versions verified for WebContainer + Next 14.2.29 */
 export const SCAFFOLD_DEPS: Record<string, string> = {
@@ -86,13 +87,55 @@ const TSCONFIG = JSON.stringify(
 
 const TAILWIND_CONFIG = `/** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: ['class'],
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+    },
   },
   plugins: [require('tailwindcss-animate')],
 }
@@ -110,19 +153,49 @@ const GLOBALS_CSS = `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-}
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
 
-body {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  body::-webkit-scrollbar {
+    display: none;
+  }
 }
 `
 
 const LAYOUT_TSX = `import './globals.css'
 import type { Metadata } from 'next'
+import { AppProviders } from '@/components/providers/AppProviders'
 
 export const metadata: Metadata = {
   title: 'runtime42 App',
@@ -136,7 +209,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppProviders>{children}</AppProviders>
+      </body>
     </html>
   )
 }
@@ -168,6 +243,8 @@ export const BASE_NEXT_SCAFFOLD: GeneratedFiles = {
   'tailwind.config.js': TAILWIND_CONFIG,
   'postcss.config.js': POSTCSS_CONFIG,
   'lib/utils.ts': LIB_UTILS,
+  ...SCAFFOLD_UI_FILES,
+  ...SCAFFOLD_PROVIDER_FILES,
   'app/globals.css': GLOBALS_CSS,
   'app/layout.tsx': LAYOUT_TSX,
   'app/page.tsx': PAGE_TSX,
@@ -180,6 +257,8 @@ export const SCAFFOLD_LOCKED_PATHS = new Set([
   'tailwind.config.js',
   'postcss.config.js',
   'lib/utils.ts',
+  ...SCAFFOLD_UI_PATHS,
+  ...SCAFFOLD_PROVIDER_PATHS,
 ])
 
 export interface ExtraDependency {
@@ -244,6 +323,20 @@ export function mergeScaffoldWithProductFiles(
   return merged
 }
 
+/** Re-apply locked scaffold files — fixes older projects saved without lib/utils.ts etc. */
+export function ensureScaffoldFiles(files: GeneratedFiles): GeneratedFiles {
+  const out = { ...files }
+  for (const path of SCAFFOLD_LOCKED_PATHS) {
+    if (BASE_NEXT_SCAFFOLD[path]) {
+      out[path] = BASE_NEXT_SCAFFOLD[path]
+    }
+  }
+  if (!out['package.json']) {
+    out['package.json'] = BASE_NEXT_SCAFFOLD['package.json']
+  }
+  return out
+}
+
 /** Apply extra packages onto an existing package.json string */
 export function applyExtrasToPackageJson(
   existingPkgJson: string,
@@ -285,8 +378,12 @@ const IMPORT_CONTRACT = `
 IMPORT CONTRACT (use EXACT package names — wrong names break the preview):
 - Slot → import { Slot } from '@radix-ui/react-slot'  (NEVER 'react-slot')
 - Radix primitives → '@radix-ui/react-dialog', '@radix-ui/react-accordion', etc.
-- cn() helper → import { cn } from '@/lib/utils'  (lib/utils.ts exists in scaffold — do NOT return it)
-- Icons → import from 'lucide-react' only (NOT react-icons, NOT @radix-ui/react-icons)
+- cn() helper → import { cn } from '@/lib/utils'  (ALWAYS exists in scaffold — NEVER create or return lib/utils.ts)
+- Every shadcn/ui component MUST use: import { cn } from '@/lib/utils'
+- Icons → import from 'lucide-react' only (NOT react-icons, NOT @radix-ui/react-icons, NOT Phosphor Pi* names)
+- Lucide social icons: Youtube (not YouTube), Linkedin, Github, Twitter, Instagram
+- Lucide sparkle: Sparkles (not PiSparkle)
+- TooltipProvider is in app layout — you may use @radix-ui/react-tooltip Tooltip in site sections
 - Navigation → 'next/link', 'next/navigation' (NOT react-router-dom)
 - Class names → clsx + tailwind-merge via cn(); tailwindcss-animate is available
 `.trim()
@@ -312,8 +409,8 @@ FORBIDDEN (will not resolve in WebContainer):
 
 PROJECT LAYOUT:
 - app/page.tsx — main page (Server Component; import client sections as children)
-- components/site/<Name>.tsx — page sections (HeroSection, etc.)
-- components/ui/<Name>.tsx — reusable UI primitives
+- components/site/<Name>.tsx — page sections (HeroSection, etc.) — AI WRITES THESE ONLY
+- components/ui/* — PRE-BUILT (Button, Badge, Card, Input, SectionHeading, Accordion) — import only
 - Path alias: @/* maps to project root
 
 CLIENT COMPONENT RULE:

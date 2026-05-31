@@ -1,4 +1,5 @@
 import type { GeneratedFiles } from './projectStructure.js'
+import { fixLucideIconNames } from './lucideIconFixes.js'
 
 /** Wrong import specifiers the AI often emits → correct installed package */
 const IMPORT_PATH_FIXES: Record<string, string> = {
@@ -73,6 +74,7 @@ function fixUiImportCasing(content: string, availablePaths: Set<string>): string
 function normalizeSourceFile(path: string, content: string, availablePaths: Set<string>): string {
   if (!/\.(tsx|jsx|ts|js)$/.test(path)) return content
   let body = fixImportPaths(content)
+  body = fixLucideIconNames(body)
   body = fixUiImportCasing(body, availablePaths)
   body = ensureUseClientDirective(path, body)
   return body

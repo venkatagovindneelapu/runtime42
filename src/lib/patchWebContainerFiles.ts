@@ -1,4 +1,5 @@
 import { normalizeProductFiles } from '@/lib/normalizeProductSource'
+import { BASE_NEXT_SCAFFOLD, ensureScaffoldFiles } from '@/lib/baseScaffold'
 
 /** Mirror backend normalizeProjectArchitecture for files loaded only on the client */
 function rewriteSectionsPaths(files: WebContainerFiles): WebContainerFiles {
@@ -107,10 +108,13 @@ function fixDevScript(pkg: Record<string, unknown>): boolean {
   return changed
 }
 
-export function patchFilesForWebContainer(files: WebContainerFiles): WebContainerFiles {
-  const patched: WebContainerFiles = normalizeProductFiles(
-    rewriteSectionsPaths({ ...files })
-  )
+export function patchFilesForWebContainer(
+  files: WebContainerFiles,
+  options: { mergeScaffold?: boolean } = {}
+): WebContainerFiles {
+  const { mergeScaffold = false } = options
+  const source = mergeScaffold ? ensureScaffoldFiles({ ...files }) : { ...files }
+  const patched: WebContainerFiles = normalizeProductFiles(rewriteSectionsPaths(source))
   let depsChanged = false
 
   if (patched['package.json']) {
@@ -140,7 +144,25 @@ module.exports = nextConfig
     console.log('[runtime42] Reset next.config.js for WebContainer')
   }
 
+  if (!options.mergeScaffold) {
+    for (const path of Object.keys(patched)) {
+      if (path.startsWith('components/ui/') || path.startsWith('lib/') || path.startsWith('components/providers/')) {
+        delete patched[path]
+      }
+    }
+  }
+
   return patched
+}
+
+/** Full mount — merge locked scaffold files (lib/utils, configs, layout) */
+export function patchMountFilesForWebContainer(files: WebContainerFiles): WebContainerFiles {
+  return patchFilesForWebContainer(files, { mergeScaffold: true })
+}
+
+/** Live deltas — product files only; scaffold already on disk from mount */
+export function patchProductDeltasForWebContainer(files: WebContainerFiles): WebContainerFiles {
+  return patchFilesForWebContainer(files, { mergeScaffold: false })
 }
 
 export function depsChangedInFiles(

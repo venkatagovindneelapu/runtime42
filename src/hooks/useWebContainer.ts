@@ -3,7 +3,8 @@ import type { WebContainer } from '@webcontainer/api'
 import { logTerminal, logWebContainerStatus } from '@/lib/pipelineLog'
 import {
   packageJsonDepsFingerprint,
-  patchFilesForWebContainer,
+  patchMountFilesForWebContainer,
+  patchProductDeltasForWebContainer,
 } from '@/lib/patchWebContainerFiles'
 import type { SandboxError } from '@/lib/sandboxErrors'
 import { sandboxErrorsToMessages } from '@/lib/sandboxErrors'
@@ -82,6 +83,9 @@ export function useWebContainer() {
   const eaddrInUseRef = useRef(false)
   const activeDevPortRef = useRef<number | null>(null)
   const activeDevProcessRef = useRef<KillableProcess | null>(null)
+  const pendingDeltaRef = useRef<Record<string, string>>({})
+  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deltaFlushChainRef = useRef<Promise<Record<string, string>>>(Promise.resolve({}))
 
   const [instance, setInstance] = useState<WebContainer | null>(null)
   const [status, setStatus] = useState<WebContainerStatus>('idle')
@@ -216,6 +220,12 @@ export function useWebContainer() {
   }, [appendLine])
 
   const prepareNewProject = useCallback(() => {
+    pendingDeltaRef.current = {}
+    if (deltaFlushTimerRef.current) {
+      clearTimeout(deltaFlushTimerRef.current)
+      deltaFlushTimerRef.current = null
+    }
+    deltaFlushChainRef.current = Promise.resolve({})
     devServerStartedRef.current = false
     serverReadyRef.current = false
     fullPipelineRef.current = null
@@ -375,7 +385,8 @@ export function useWebContainer() {
   const writeFilesToSandbox = useCallback(
     async (wc: WebContainer, patched: Record<string, string>) => {
       appendLine('')
-      appendLine('$ patching files…')
+      const paths = Object.keys(patched)
+      appendLine(`$ patching ${paths.length} file${paths.length === 1 ? '' : 's'}…`)
       for (const [path, contents] of Object.entries(patched)) {
         const parts = path.split('/').filter(Boolean)
         if (parts.length > 1) {
@@ -447,7 +458,7 @@ export function useWebContainer() {
 
         appendLine('')
         appendLine('[2/3] Mounting fixed scaffold…')
-        const mountFiles = patchFilesForWebContainer(files ?? BASE_NEXT_SCAFFOLD)
+        const mountFiles = patchMountFilesForWebContainer(files ?? BASE_NEXT_SCAFFOLD)
         await wc.mount(buildFileSystemTree(mountFiles))
         appendLine(`      ✓ Mounted ${Object.keys(mountFiles).length} files`)
 
@@ -480,20 +491,19 @@ export function useWebContainer() {
     ]
   )
 
-  /** Step 4–5: patch files into running sandbox — HMR updates preview */
-  const writeFileDeltas = useCallback(
+  const writeFileBatch = useCallback(
     async (changedFiles: Record<string, string>) => {
       if (Object.keys(changedFiles).length === 0) return changedFiles
 
       if (!sandboxInitializedRef.current) {
         await initializeSandbox({ ...BASE_NEXT_SCAFFOLD, ...changedFiles })
-        return patchFilesForWebContainer(changedFiles)
+        return patchProductDeltasForWebContainer(changedFiles)
       }
 
       return runWebContainerOp(async () => {
         const wc = await bootWebContainerOnce()
         setInstance(wc)
-        const patched = patchFilesForWebContainer(changedFiles)
+        const patched = patchProductDeltasForWebContainer(changedFiles)
         await writeFilesToSandbox(wc, patched)
         if (!serverReadyRef.current) {
           await startDevServerWithPortFallback(wc)
@@ -506,6 +516,51 @@ export function useWebContainer() {
     [initializeSandbox, startDevServerWithPortFallback, writeFilesToSandbox]
   )
 
+  const flushPendingDeltas = useCallback(async () => {
+    if (deltaFlushTimerRef.current) {
+      clearTimeout(deltaFlushTimerRef.current)
+      deltaFlushTimerRef.current = null
+    }
+    const batch = pendingDeltaRef.current
+    if (Object.keys(batch).length === 0) return {}
+    pendingDeltaRef.current = {}
+    return writeFileBatch(batch)
+  }, [writeFileBatch])
+
+  /** Step 4–5: patch product files — batched during streaming, immediate on complete */
+  const writeFileDeltas = useCallback(
+    async (
+      changedFiles: Record<string, string>,
+      options?: { immediate?: boolean }
+    ) => {
+      if (Object.keys(changedFiles).length === 0) return changedFiles
+
+      if (options?.immediate) {
+        if (deltaFlushTimerRef.current) {
+          clearTimeout(deltaFlushTimerRef.current)
+          deltaFlushTimerRef.current = null
+        }
+        Object.assign(pendingDeltaRef.current, changedFiles)
+        const run = async () => flushPendingDeltas()
+        deltaFlushChainRef.current = deltaFlushChainRef.current.then(run, run)
+        return deltaFlushChainRef.current
+      }
+
+      Object.assign(pendingDeltaRef.current, changedFiles)
+      if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current)
+
+      return new Promise<Record<string, string>>((resolve, reject) => {
+        deltaFlushTimerRef.current = setTimeout(() => {
+          deltaFlushTimerRef.current = null
+          const run = async () => flushPendingDeltas()
+          deltaFlushChainRef.current = deltaFlushChainRef.current.then(run, run)
+          deltaFlushChainRef.current.then(resolve).catch(reject)
+        }, 200)
+      })
+    },
+    [flushPendingDeltas]
+  )
+
   const runFullPipeline = useCallback(
     async (files: Record<string, string>) => {
       if (fullPipelineRef.current) return fullPipelineRef.current
@@ -514,9 +569,9 @@ export function useWebContainer() {
         if (!sandboxInitializedRef.current) {
           await initializeSandbox(files)
         } else {
-          await writeFileDeltas(files)
+          await writeFileDeltas(files, { immediate: true })
         }
-        return patchFilesForWebContainer(files)
+        return patchProductDeltasForWebContainer(files)
       })()
 
       fullPipelineRef.current = pipeline

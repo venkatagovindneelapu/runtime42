@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Plus, MessageSquare, AudioLines, ArrowUp, ChevronDown,
   Globe, Code, BarChart3, Share2,
-  History, Smartphone, Tablet, Monitor, RefreshCcw, ExternalLink, Check,
+  History, RefreshCcw, ExternalLink,
   ArrowLeft, Settings, Copy, PenLine, Star, Gift, Palette, HelpCircle, ChevronRight
 } from 'lucide-react';
 import {
@@ -35,14 +35,12 @@ import TerminalPanel from '@/components/editor/TerminalPanel';
 import CodeTypingEditor from '@/components/editor/CodeTypingEditor';
 import ThinkingInstruction from '@/components/editor/ThinkingInstruction';
 import StreamingAssistantResponse from '@/components/editor/StreamingAssistantResponse';
-import SuggestionsList from '@/components/editor/SuggestionsList';
 import FileDiffViewer from '@/components/editor/FileDiffViewer';
 import BuildingScreen from '@/components/BuildingScreen';
-import { sandboxErrorsToSuggestions } from '@/lib/sandboxErrors';
+import { sandboxErrorTitle } from '@/lib/sandboxErrors';
 import type { FileChange } from '@/components/editor/EditedFilesList';
 import { toast } from 'sonner';
 
-type DeviceType = 'mobile' | 'tablet' | 'desktop';
 type TabType = 'preview' | 'code' | 'analytics';
 
 type PipelineStep = {
@@ -168,8 +166,6 @@ const ProjectEditor = () => {
   const [writingFilePath, setWritingFilePath] = useState<string | null>(null);
   const [animatingCode, setAnimatingCode] = useState(false);
   const [projectName, setProjectName] = useState('New Project');
-  const [previewRoute, setPreviewRoute] = useState('/');
-  const [activeDevice, setActiveDevice] = useState<DeviceType>('desktop');
   const [activeTab, setActiveTab] = useState<TabType>('preview');
   const [previewKey, setPreviewKey] = useState(0);
   const [isFileSearchOpen, setIsFileSearchOpen] = useState(false);
@@ -184,52 +180,36 @@ const ProjectEditor = () => {
   const filesBeforeGenerationRef = useRef<WebContainerFiles>({});
   const lastGeneratedFilesRef = useRef<WebContainerFiles>({});
   const prevProjectIdRef = useRef<string | undefined>(undefined);
+  const shownErrorToastsRef = useRef<Set<string>>(new Set());
   const webContainer = useWebContainer();
-
-  const availableRoutes = [
-    { path: '/', label: 'Home' },
-    { path: '/features', label: 'Features' },
-    { path: '/pricing', label: 'Pricing' },
-    { path: '/about', label: 'About' },
-    { path: '/blog', label: 'Blog' },
-    { path: '/contact', label: 'Contact' },
-    { path: '/login', label: 'Login' },
-    { path: '/signup', label: 'Sign Up' },
-  ];
-
-  useEffect(() => {
-    if (previewContainerRef.current) {
-      previewContainerRef.current.scrollTop = 0;
-    }
-  }, [previewRoute]);
-
-  const deviceSizes = {
-    mobile: 'max-w-sm w-full',
-    tablet: 'max-w-2xl w-full',
-    desktop: 'w-full'
-  };
-
-  const cycleDevice = () => {
-    const deviceOrder: DeviceType[] = ['desktop', 'tablet', 'mobile'];
-    const currentIndex = deviceOrder.indexOf(activeDevice);
-    const nextIndex = (currentIndex + 1) % deviceOrder.length;
-    setActiveDevice(deviceOrder[nextIndex]);
-  };
-
-  const getDeviceIcon = () => {
-    switch (activeDevice) {
-      case 'mobile': return Smartphone;
-      case 'tablet': return Tablet;
-      default: return Monitor;
-    }
-  };
-
-  const DeviceIcon = getDeviceIcon();
 
   const handleFileSelect = useCallback((path: string) => {
     setActiveTab('code');
     toast.success(`Opening ${path.split('/').pop()}`);
   }, []);
+
+  useEffect(() => {
+    shownErrorToastsRef.current.clear();
+  }, [projectId]);
+
+  useEffect(() => {
+    for (const err of webContainer.sandboxErrors) {
+      if (shownErrorToastsRef.current.has(err.id)) continue;
+      shownErrorToastsRef.current.add(err.id);
+      toast.error(sandboxErrorTitle(err), {
+        description: err.fixHint ?? undefined,
+        duration: 10000,
+      });
+    }
+  }, [webContainer.sandboxErrors]);
+
+  useEffect(() => {
+    if (!webContainer.error) return;
+    const id = `wc-error:${webContainer.error}`;
+    if (shownErrorToastsRef.current.has(id)) return;
+    shownErrorToastsRef.current.add(id);
+    toast.error(webContainer.error);
+  }, [webContainer.error]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -298,26 +278,6 @@ const ProjectEditor = () => {
 
   const pendingPreviewRef = useRef(false);
 
-  const activePipelineLabel = pipelineSteps.find((s) => s.status === 'active')?.label;
-
-  const statusMessage = (() => {
-    if (isGenerating && activePipelineLabel) return activePipelineLabel;
-    switch (webContainer.status) {
-      case 'booting':
-        return 'Starting sandbox environment...';
-      case 'installing':
-        return 'Installing packages... this takes ~30s';
-      case 'starting':
-        return 'Starting Next.js dev server...';
-      case 'error':
-        return webContainer.error || 'Preview failed to start';
-      case 'ready':
-        return webContainer.terminal.split('\n').filter(Boolean).slice(-1)[0] || '';
-      default:
-        return '';
-    }
-  })();
-
   const previewProgress = useMemo(() => {
     if (webContainer.previewUrl) return 100;
     if (webContainer.status === 'starting') return 92;
@@ -359,7 +319,7 @@ const ProjectEditor = () => {
 
     const delta = changedOnly ?? files;
     if (Object.keys(delta).length === 0) return;
-    const patched = await webContainer.writeFileDeltas(delta);
+    const patched = await webContainer.writeFileDeltas(delta, { immediate: true });
     setGeneratedFiles((prev) => ({ ...prev, ...patched }));
   }, [webContainer]);
 
@@ -452,12 +412,6 @@ const ProjectEditor = () => {
           // bootstrap will retry on complete
         }
       }
-
-      if (sandboxBootstrappedRef.current) {
-        webContainer.writeFileDeltas({ [path]: content }).catch(() => {
-          // non-fatal — complete event will sync
-        });
-      }
     },
     [webContainer]
   );
@@ -479,6 +433,7 @@ const ProjectEditor = () => {
       }
 
       pendingPreviewRef.current = true;
+      setPreviewKey((k) => k + 1);
       setWritingFilePath(null);
     },
     [bootWithFiles]
@@ -673,11 +628,6 @@ const ProjectEditor = () => {
 
   const chatTurns = useMemo(() => groupChatTurns(chatMessages), [chatMessages]);
 
-  const previewErrorSuggestions = useMemo(
-    () => sandboxErrorsToSuggestions(webContainer.sandboxErrors),
-    [webContainer.sandboxErrors]
-  );
-
   const showLiveTurn = Boolean(
     activePrompt && (isGenerating || livePhase === 'done' || livePhase === 'streaming')
   );
@@ -813,47 +763,8 @@ const ProjectEditor = () => {
             </button>
           </div>
           
-          <div className="flex-1 flex justify-center">
-            <div className="flex items-center bg-muted rounded-full px-1">
-              <button 
-                onClick={cycleDevice}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-muted-foreground/10 rounded-lg transition-colors"
-              >
-                <DeviceIcon className="w-4 h-4 text-muted-foreground" />
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-3 px-3 py-2 hover:bg-muted-foreground/10 rounded-lg transition-colors outline-none">
-                  <span className="text-sm text-muted-foreground">{previewRoute}</span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" className="min-w-[200px] bg-popover border border-border z-50">
-                  {availableRoutes.map((route) => (
-                    <DropdownMenuItem 
-                      key={route.path}
-                      onClick={() => setPreviewRoute(route.path)}
-                      className="flex items-center justify-between cursor-pointer"
-                    >
-                      <span>{route.path}</span>
-                      {previewRoute === route.path && <Check className="w-4 h-4" />}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <button 
-                type="button"
-                onClick={() => {
-                  setPreviewKey(prev => prev + 1);
-                  refetchProject();
-                }}
-                className="p-2 hover:bg-muted-foreground/10 rounded-lg transition-colors"
-              >
-                <RefreshCcw className="w-4 h-4 text-muted-foreground" />
-              </button>
-              <button type="button" className="p-2 hover:bg-muted-foreground/10 rounded-lg transition-colors">
-                <ExternalLink className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-          </div>
-          
+          <div className="flex-1" />
+
           <button
             onClick={() => setIsFileSearchOpen(true)}
             className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-muted/50 rounded-full border border-border/50"
@@ -905,30 +816,13 @@ const ProjectEditor = () => {
                     fileChanges={liveFileChanges}
                     animate
                     onAnimationComplete={finishStreamingResponse}
-                    onSuggestion={(text) => handleSubmit(text, previewErrorSuggestions.length > 0)}
+                    onSuggestion={(text) => handleSubmit(text)}
                     onSelectFile={openFileFromChat}
-                    errorSuggestions={previewErrorSuggestions}
                   />
                 )}
               </div>
             )}
           </div>
-
-          {previewErrorSuggestions.length > 0 && !isGenerating && (
-            <div className="px-4 pb-2">
-              <SuggestionsList
-                title="Preview errors"
-                variant="error"
-                suggestions={previewErrorSuggestions}
-                onSelect={(text) =>
-                  handleSubmit(
-                    `${text} Use exact WebContainer dependency versions (Next 14.2.29, shadcn/radix pins).`,
-                    true
-                  )
-                }
-              />
-            </div>
-          )}
 
           <div className="p-4">
             <div className="relative bg-muted/80 border border-border/50 rounded-2xl overflow-hidden">
@@ -980,19 +874,38 @@ const ProjectEditor = () => {
                   </div>
                 ) : (
                   <>
-                    {(webContainer.previewUrl || webContainer.status === 'error' || webContainer.error) && (
-                      <div className={`h-9 px-4 flex items-center gap-2 text-xs ${webContainer.status === 'error' || webContainer.error ? 'text-destructive' : 'text-muted-foreground'} border-b border-border/50`}>
-                        {webContainer.status === 'ready' && <span className="w-2 h-2 rounded-full bg-green-500" />}
-                        <span>
-                          {webContainer.error ||
-                            statusMessage ||
-                            'Preview ready'}
+                    {webContainer.previewUrl && (
+                      <div className="h-10 px-3 flex items-center gap-2 border-b border-border/50 bg-muted/20 shrink-0">
+                        <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                        <span
+                          className="flex-1 min-w-0 text-xs text-muted-foreground truncate font-mono"
+                          title={webContainer.previewUrl}
+                        >
+                          {webContainer.previewUrl}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewKey((prev) => prev + 1);
+                            refetchProject();
+                          }}
+                          className="p-1.5 rounded-md hover:bg-muted transition-colors shrink-0"
+                          title="Refresh preview"
+                        >
+                          <RefreshCcw className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => window.open(webContainer.previewUrl!, '_blank', 'noopener,noreferrer')}
+                          className="p-1.5 rounded-md hover:bg-muted transition-colors shrink-0"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
                       </div>
                     )}
-                    <div className={`flex-1 flex items-center justify-center ${activeDevice !== 'desktop' ? 'bg-muted/30 p-4' : ''} overflow-auto scrollbar-hide`}>
-                      <div className={`h-full ${deviceSizes[activeDevice]} ${activeDevice !== 'desktop' ? 'border border-border rounded-3xl shadow-2xl bg-background overflow-hidden' : ''}`}>
-                        <div ref={previewContainerRef} className="h-full w-full overflow-auto scrollbar-hide">
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      <div ref={previewContainerRef} className="h-full w-full overflow-hidden">
                           {webContainer.previewUrl ? (
                             <iframe
                               key={previewKey}
@@ -1000,7 +913,7 @@ const ProjectEditor = () => {
                               src={webContainer.previewUrl}
                               width="100%"
                               height="100%"
-                              className="w-full h-full border-0 bg-white"
+                              className="w-full h-full border-0 bg-white block"
                             />
                           ) : showPreviewLoader ? (
                             <BuildingScreen
@@ -1016,7 +929,6 @@ const ProjectEditor = () => {
                               </div>
                             </div>
                           )}
-                        </div>
                       </div>
                     </div>
                   </>

@@ -1,4 +1,5 @@
 import { ensureUseClientDirective } from '@/lib/ensureUseClient'
+import { fixLucideIconNames } from '@/lib/lucideIconFixes'
 
 /** Wrong import specifiers the AI often emits → correct installed package */
 const IMPORT_PATH_FIXES: Record<string, string> = {
@@ -45,6 +46,7 @@ export function normalizeProductSource(
 ): string {
   if (!/\.(tsx|jsx|ts|js)$/.test(path)) return content
   let body = fixImportPaths(content)
+  body = fixLucideIconNames(body)
   body = fixUiImportCasing(body, availablePaths)
   return ensureUseClientDirective(path, body)
 }

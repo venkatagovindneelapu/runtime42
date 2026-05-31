@@ -2,6 +2,12 @@ import { callOpenAI } from './openai.js'
 import { normalizeProjectArchitecture } from './projectStructure.js'
 import { normalizeProductCode } from './normalizeProductCode.js'
 import {
+  buildAllowedTreePrompt,
+  filterToAllowedProductFiles,
+  getAllowedProductPaths,
+  sanitizePlanFilePaths,
+} from './fileTreeTemplate.js'
+import {
   mergeScaffoldWithProductFiles,
   stripScaffoldPaths,
   buildScaffoldContract,
@@ -146,11 +152,13 @@ const PLANNER_SYSTEM = `You are a senior Next.js architect. Create a detailed te
 
 ${SCAFFOLD_CONTRACT}
 
-FIXED PROJECT ARCHITECTURE (never use components/sections/ or other folders):
-- Landing sections: components/site/<PascalName>.tsx (e.g. components/site/HeroSection.tsx)
-- Shared UI: components/ui/<PascalName>.tsx
-- app/page.tsx composes imports from @/components/site/<Name> only
-- Every component imported in app/page.tsx MUST appear in projectStructure.files with that exact path
+FIXED PROJECT ARCHITECTURE — strict allowlist:
+- app/page.tsx — ONLY page file (composes site sections)
+- components/site/<PascalCase>.tsx — landing sections ONLY (HeroSection, FeaturesSection, etc.)
+- components/ui/* — PRE-INSTALLED in scaffold (Button, Badge, Card, Input, SectionHeading, Accordion) — NEVER plan or generate these
+- Do NOT plan lib/, config files, or components/ui/ paths
+
+Pick section files from: HeroSection, NavigationBar, FeaturesSection, HowItWorksSection, TestimonialsSection, PricingSection, FAQSection, CTASection, FooterSection, StatsSection, LogosSection, ComparisonSection
 
 Return ONLY valid JSON:
 {
@@ -188,58 +196,37 @@ Rules:
 - section is "dependencies" or "devDependencies"
 No markdown.`
 
-const CODING_SYSTEM = `You are an expert Next.js developer. Generate production-ready Next.js 14 App Router code with TypeScript and Tailwind CSS.
+const CODING_SYSTEM = `You are an expert Next.js developer. Generate landing page sections inside a FIXED file tree.
 
 ${SCAFFOLD_CONTRACT}
 
-IMPORTANT: A fixed scaffold already exists (package.json, configs, app/layout.tsx, app/globals.css, lib/utils.ts).
-DO NOT return scaffold files. Return ONLY product/application files you create or change.
+YOU ONLY WRITE: app/page.tsx + components/site/*.tsx paths from allowedFilePaths in the user message.
+NEVER return components/ui/*, lib/*, configs, or package.json — those exist in scaffold.
 
-Follow the coding plan EXACTLY. Use only packages from INSTALLED DEPENDENCIES. Follow codingInstructions. Avoid everything in avoidList.
+Design freedom: Tailwind layout, copy, colors (CSS vars), framer-motion, lucide icons — all within site section files.
+Import UI from scaffold only: @/components/ui/Button, Badge, Card, Input, SectionHeading, Accordion.
+Icons: lucide-react ONLY — use Sparkles not PiSparkle; Youtube not YouTube; Linkedin not LinkedIn.
+Do NOT import Phosphor (Pi*) or react-icons. Tooltip works — TooltipProvider is in layout.
 
-Required project layout (use these exact path keys as flat strings):
-- app/page.tsx (main page — you SHOULD return this)
-- components/site/<SectionName>.tsx for page sections (HeroSection, FeatureCards, etc.)
-- components/ui/<Name>.tsx for reusable UI primitives only
-- lib/ as needed under lib/*.ts (never lib/utils.ts — scaffold owns it)
+Follow codingPlan and allowedFilePaths EXACTLY. Return ONLY paths in allowedFilePaths.
 
-NEVER return: package.json, next.config.js, tsconfig.json, tailwind.config.js, postcss.config.js, lib/utils.ts, app/layout.tsx, app/globals.css, package-lock.json
+SECTION RULES:
+- export function SectionName() { ... } matching filename
+- 'use client' if using motion, hooks, Radix, or lucide-react
+- cn() from '@/lib/utils'
+- Slot from '@radix-ui/react-slot' only if building custom primitive (prefer scaffold Button)
 
-ARCHITECTURE CONSISTENCY (critical on edits):
-- NEVER switch folder layout between runs (no components/sections/, no src/components/)
-- If existingFiles use components/site/, keep using components/site/ with the SAME file names
-- app/page.tsx may ONLY import paths that exist in your JSON output or in existingFiles
-- If you add a section, create the .tsx file AND import it in app/page.tsx in the same response
-- If you rename a component file, update every import in app/page.tsx to match
-
-WEBCONTAINER RULES:
-- scripts.dev: next dev --port 3000 (Next 14 — no --webpack flag)
-- next.config.js: CommonJS module.exports only, no turbopack
-- Use <img> for external images, not next/image with unconfigured domains
-- framer-motion@11.11.17 only in Client Components ('use client' first line)
-- Copy shadcn component source into components/ui/ — do NOT use shadcn CLI
-
-COMMON ERROR PREVENTION:
-- Slot MUST be from '@radix-ui/react-slot' — NEVER 'react-slot'
-- cn() from '@/lib/utils' — file already exists, do not recreate
-- Icons from 'lucide-react' only
-- Server components must not import framer-motion or @radix-ui/*
-- ALL .js config files use module.exports only
-- Use next/font in layout OR system-ui — no @import Google Fonts in CSS
-
-OUTPUT PATH RULES:
-- Forward slashes only (app/page.tsx not app\\page.tsx)
-- No CDN script tags; all deps must be in INSTALLED DEPENDENCIES
+PAGE RULES:
+- Server Component (no 'use client' unless required)
+- Import ONLY from @/components/site/<Name> listed in allowedFilePaths
+- Order sections logically: NavigationBar first, FooterSection last
 
 Output format:
-- Return ONLY a single JSON object
-- Keys = file paths relative to project root (strings)
-- Values = complete file source code (strings only, never nested objects)
-- Do NOT wrap in { "files": { ... } }
-- If existingFiles provided, return ONLY changed files
-- Real content only, no Lorem Ipsum
+- Single JSON object: path → full file source
+- If existingFiles provided, return ONLY changed allowed paths
+- Real content, no Lorem Ipsum
 
-No markdown. No explanation.`
+No markdown.`
 
 const FIXER_SYSTEM = `You are a senior debugging engineer. Fix specific errors in a Next.js app.
 
@@ -294,7 +281,7 @@ export async function runPlanner(intent: ChunkedIntent): Promise<CodingPlan> {
     PLANNER_SYSTEM,
     JSON.stringify(intent, null, 2)
   )
-  return parseJsonResponse<CodingPlan>(raw)
+  return sanitizePlanFilePaths(parseJsonResponse<CodingPlan>(raw))
 }
 
 export interface DependencyPlan {
@@ -369,15 +356,19 @@ export async function runCodingAgent(
   existingFiles: GeneratedFiles | null,
   originalPrompt: string
 ): Promise<GeneratedFiles> {
+  const allowed = getAllowedProductPaths(plan, existingFiles)
   const userContent = JSON.stringify({
     originalPrompt,
     chunkedIntent: intent,
     codingPlan: plan,
     existingFiles,
+    allowedFilePaths: [...allowed].sort(),
+    fileTreeContract: buildAllowedTreePrompt(plan, allowed),
   })
 
   const raw = await callOpenAI(CODEX_MODEL, CODING_SYSTEM, userContent, 0.4)
-  return stripScaffoldPaths(parseFilesObject(raw))
+  const parsed = stripScaffoldPaths(parseFilesObject(raw))
+  return filterToAllowedProductFiles(parsed, allowed)
 }
 
 export async function runErrorFixer(
@@ -385,13 +376,17 @@ export async function runErrorFixer(
   currentFiles: GeneratedFiles,
   plan: CodingPlan
 ): Promise<GeneratedFiles> {
+  const allowed = getAllowedProductPaths(plan, currentFiles)
   const userContent = JSON.stringify({
     errors: errorMessages,
     currentFiles,
     plan,
+    allowedFilePaths: [...allowed].sort(),
+    fileTreeContract: buildAllowedTreePrompt(plan, allowed),
   })
   const raw = await callOpenAI(CODEX_MODEL, FIXER_SYSTEM, userContent, 0.2)
-  return stripScaffoldPaths(parseFilesObject(raw))
+  const parsed = stripScaffoldPaths(parseFilesObject(raw))
+  return filterToAllowedProductFiles(parsed, allowed)
 }
 
 export async function runSummarizer(

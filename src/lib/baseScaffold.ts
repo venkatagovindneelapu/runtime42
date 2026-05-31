@@ -1,4 +1,18 @@
 import type { WebContainerFiles } from '@/lib/patchWebContainerFiles'
+import { SCAFFOLD_UI_FILES, SCAFFOLD_UI_PATHS, SCAFFOLD_PROVIDER_FILES, SCAFFOLD_PROVIDER_PATHS } from '@/lib/scaffoldUi'
+
+/** Paths always forced from scaffold — never trust AI/DB to include these */
+export const SCAFFOLD_INJECT_PATHS = [
+  'lib/utils.ts',
+  'next.config.js',
+  'tsconfig.json',
+  'tailwind.config.js',
+  'postcss.config.js',
+  'app/globals.css',
+  'app/layout.tsx',
+  'components/providers/AppProviders.tsx',
+  ...SCAFFOLD_UI_PATHS,
+] as const
 
 /** Mirror of backend BASE_NEXT_SCAFFOLD for early sandbox boot */
 export const BASE_NEXT_SCAFFOLD: WebContainerFiles = {
@@ -82,12 +96,56 @@ module.exports = nextConfig
   ),
   'tailwind.config.js': `/** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: ['class'],
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
   ],
-  theme: { extend: {} },
+  theme: {
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+    },
+  },
   plugins: [require('tailwindcss-animate')],
 }
 `,
@@ -105,22 +163,54 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 `,
+  ...SCAFFOLD_UI_FILES,
+  ...SCAFFOLD_PROVIDER_FILES,
   'app/globals.css': `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-}
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
 
-body {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  body::-webkit-scrollbar {
+    display: none;
+  }
 }
 `,
   'app/layout.tsx': `import './globals.css'
 import type { Metadata } from 'next'
+import { AppProviders } from '@/components/providers/AppProviders'
 
 export const metadata: Metadata = {
   title: 'runtime42 App',
@@ -134,7 +224,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppProviders>{children}</AppProviders>
+      </body>
     </html>
   )
 }
@@ -149,3 +241,16 @@ export default function RootLayout({
 }
 `,
 }
+
+/** Merge required scaffold files so imports like @/lib/utils always resolve */
+export function ensureScaffoldFiles(files: WebContainerFiles): WebContainerFiles {
+  const out = { ...files }
+  for (const path of SCAFFOLD_INJECT_PATHS) {
+    out[path] = BASE_NEXT_SCAFFOLD[path]
+  }
+  if (!out['package.json']) {
+    out['package.json'] = BASE_NEXT_SCAFFOLD['package.json']
+  }
+  return out
+}
+

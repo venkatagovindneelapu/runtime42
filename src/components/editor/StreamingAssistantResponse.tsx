@@ -10,8 +10,6 @@ interface StreamingAssistantResponseProps {
   onAnimationComplete?: () => void
   onSuggestion?: (text: string) => void
   onSelectFile?: (change: FileChange) => void
-  /** When set, shown instead of summary.nextSuggestions (e.g. WebContainer errors) */
-  errorSuggestions?: string[]
 }
 
 export default function StreamingAssistantResponse({
@@ -21,7 +19,6 @@ export default function StreamingAssistantResponse({
   onAnimationComplete,
   onSuggestion,
   onSelectFile,
-  errorSuggestions = [],
 }: StreamingAssistantResponseProps) {
   const bodyTokens = useMemo(() => {
     const text = summary.whatWasBuilt || ''
@@ -80,17 +77,8 @@ export default function StreamingAssistantResponse({
       {showExtras && changes.length > 0 && onSelectFile && (
         <EditedFilesList changes={changes} onSelectFile={onSelectFile} />
       )}
-      {showExtras && onSuggestion && errorSuggestions.length > 0 && (
-        <SuggestionsList
-          title="Preview errors"
-          variant="error"
-          suggestions={errorSuggestions}
-          onSelect={onSuggestion}
-        />
-      )}
       {showExtras &&
         onSuggestion &&
-        errorSuggestions.length === 0 &&
         summary.nextSuggestions?.length > 0 && (
           <SuggestionsList suggestions={summary.nextSuggestions} onSelect={onSuggestion} />
         )}

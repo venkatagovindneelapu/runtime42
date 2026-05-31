@@ -15,7 +15,7 @@ import {
   type GenerationSummary,
   type ExtraDependency,
 } from './agents'
-import { applyExtrasToPackageJson } from './scaffold'
+import { applyExtrasToPackageJson, ensureScaffoldFiles } from './scaffold'
 
 export type CheckpointStatus = 'active' | 'done' | 'error'
 
@@ -130,14 +130,14 @@ function mergeWithExisting(
   isFirstGeneration: boolean
 ): GeneratedFiles {
   if (isFirstGeneration || !existingFiles || Object.keys(existingFiles).length === 0) {
-    return mergeScaffoldWithProductFiles(productFiles, extras)
+    return ensureScaffoldFiles(mergeScaffoldWithProductFiles(productFiles, extras))
   }
 
   const merged: GeneratedFiles = { ...existingFiles, ...productFiles }
   if (extras.length > 0 && merged['package.json']) {
     merged['package.json'] = applyExtrasToPackageJson(merged['package.json'], extras)
   }
-  return merged
+  return ensureScaffoldFiles(merged)
 }
 
 export interface RunPipelineOptions {
@@ -217,7 +217,7 @@ export async function runGenerationPipeline(
       await emitCheckpoint(projectId, thinkingMessageId, steps, 4, 'active', undefined, onEvent)
       const planFromDb = project.codingPlan ? JSON.parse(project.codingPlan) : plan
       const fixed = await runErrorFixer(errorMessages!, existingFiles!, planFromDb)
-      mergedFiles = { ...existingFiles!, ...fixed }
+      mergedFiles = ensureScaffoldFiles({ ...existingFiles!, ...fixed })
       emitFileDeltas(fixed, onEvent)
       await emitCheckpoint(projectId, thinkingMessageId, steps, 4, 'done', undefined, onEvent)
     } else {
